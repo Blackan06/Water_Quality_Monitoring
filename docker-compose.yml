@@ -1,0 +1,136 @@
+
+services:
+  # Kafka Zookeeper
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      - ZOOKEEPER_TICK_TIME=2000
+      - ZOOKEEPER_INIT_LIMIT=5
+      - ZOOKEEPER_SYNC_LIMIT=2
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    networks:
+      - kafka_network
+
+  # Kafka Broker
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: kafka
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 5s
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092  
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL=PLAINTEXT
+      - KAFKA_CFG_LISTENER_PORT=9092
+      - KAFKA_CFG_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+    depends_on:
+      - zookeeper
+    networks:
+      - kafka_network
+
+
+
+  # Kafka Producer App
+  kafka_producer:
+    build:
+      context: .  # Đặt context là thư mục gốc của project
+      dockerfile: kafka/producer/Dockerfile  # Chỉ định đường dẫn Dockerfile
+    container_name: kafka_producer
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=water-quality-data
+      - DB_HOST=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=admin1234
+      - DB_NAME=WQI
+    depends_on:
+      - kafka
+    networks:
+      - kafka_network
+  spark-master:
+    image: bitnami/spark:latest
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+    ports:
+      - "8080:8080"  # Spark UI
+      - "7077:7077"  # Spark master port
+    networks:
+      - kafka_network
+
+  # Spark Worker Node
+  spark-worker:
+    image: bitnami/spark:latest
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER=spark://spark-master:7077
+    ports:
+      - "8081:8081"
+    networks:
+      - kafka_network
+  spark-consumer:
+    build:
+        context: .
+        dockerfile: spark/Dockerfile
+    container_name: spark-consumer
+    env_file:
+      - .env      
+    depends_on:
+      - kafka
+      - postgres
+      - spark-master
+    networks:
+      - kafka_network
+  # Kafdrop UI (Kafka Manager)
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: kafdrop
+    ports:
+      - "9000:9000"  # Truy cập UI qua port 9000
+    environment:
+      - KAFKA_BROKERCONNECT=kafka:9092  # Kết nối đến Kafka broker
+    depends_on:
+      - postgres
+      - kafka
+    networks:
+      - kafka_network
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 5s
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin1234
+      POSTGRES_DB: WQI
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - kafka_network
+
+
+networks:
+  kafka_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
