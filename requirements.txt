@@ -1,0 +1,8 @@
+kafka-python
+confluent_kafka
+requests
+restcountries
+psycopg2-binary
+python-dotenv
+pyspark
+pandas
