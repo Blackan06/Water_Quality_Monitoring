@@ -4,6 +4,7 @@ from logs.LogService import write_log_to_postgres
 import os
 from dotenv import load_dotenv
 import logging
+
 load_dotenv()
 
 db_name = os.getenv("DB_NAME")
@@ -19,7 +20,7 @@ db_properties['driver'] = db_postgresql_driver
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-def save_to_postgresql_table(current_df, spark,epoc_id):
+def save_to_postgresql_table(spark,current_df,epoch_id):
 
 
     #write_log_to_postgres("INFO","Starting to write batch to PostgreSQL","Spark Consumer")
@@ -43,11 +44,22 @@ def save_to_postgresql_table(current_df, spark,epoc_id):
         print(db_properties)
         print(f"jdbc:postgresql://{db_host}:{db_port}/{db_name}")
 
-        test_df = spark.read.jdbc(
-            url=f"jdbc:postgresql://{db_host}:{db_port}/{db_name}",
-            table="iot_sensor",
-            properties=db_properties
-        )
+        try:
+            print("Attempting to read existing data from PostgreSQL...")
+            test_df = spark.read.jdbc(
+                url=f"jdbc:postgresql://{db_host}:{db_port}/{db_name}",
+                table="iot_sensor",
+                properties=db_properties
+            )
+            print(f"1abc {test_df}")
+            test_df.show(5)
+
+        except Exception as e:
+            error_message = f"Error while reading from PostgreSQL: {e}"
+            write_log_to_postgres("ERROR", error_message, 'Spark Consumer')
+            print(error_message)
+            raise 
+
         print(f"1abc {test_df}")
         print(f"1abc {test_df.show(5)}")
         #write_log_to_postgres("INFO",f"Existing data in PostgreSQL:","Spark Consumer")

@@ -94,19 +94,25 @@ services:
       - spark-master
     networks:
       - kafka_network
-  # Kafdrop UI (Kafka Manager)
-  kafdrop:
-    image: obsidiandynamics/kafdrop:latest
-    container_name: kafdrop
+
+    # Kafka UI (Lenses.io)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
     ports:
-      - "9000:9000"  # Truy cập UI qua port 9000
+      - "8085:8080"  # Truy cập UI qua http://localhost:8085
     environment:
-      - KAFKA_BROKERCONNECT=kafka:9092  # Kết nối đến Kafka broker
+      - KAFKA_CLUSTERS_0_NAME=local-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_UI_AUTH_TYPE=BASIC
+      - KAFKA_UI_AUTH_USERNAME=admin
+      - KAFKA_UI_AUTH_PASSWORD=admin1234
     depends_on:
-      - postgres
-      - kafka
+      kafka:
+        condition: service_healthy
     networks:
       - kafka_network
+  
   postgres:
     image: postgres:latest
     container_name: postgres

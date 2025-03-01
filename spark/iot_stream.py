@@ -25,11 +25,9 @@ def run_spark_job():
 
     # Định nghĩa schema cho dữ liệu JSON
     schema = StructType([
-        StructField("id", IntegerType(), True),           # event_id sẽ được ánh xạ vào trường id
         StructField("ph", FloatType(), True),             # event_pH sẽ được ánh xạ vào trường ph
         StructField("turbidity", FloatType(), True),      # event_turbidity sẽ được ánh xạ vào trường turbidity
         StructField("temperature", FloatType(), True),   # event_temperature sẽ được ánh xạ vào trường temperature
-        StructField("measurement_time", TimestampType(), True),  # event_datetime sẽ được ánh xạ vào trường measurement_time
         StructField("create_at", TimestampType(), True)  # Tạo thêm trường create_at nếu cần thiết
     ])
 
@@ -53,7 +51,7 @@ def run_spark_job():
                 .writeStream \
                 .trigger(processingTime='20 seconds') \
                 .outputMode("update") \
-                .foreachBatch(lambda current_df, epoc_id: save_to_postgresql_table(current_df,spark, epoc_id)) \
+                .foreachBatch(lambda current_df, epoch_id: save_to_postgresql_table(spark , current_df, epoch_id)) \
                 .start()
     
 
