@@ -17,11 +17,13 @@ RUN wget https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.
     && wget https://repo1.maven.org/maven2/org/apache/spark/spark-token-provider-kafka-0-10_2.12/3.5.3/spark-token-provider-kafka-0-10_2.12-3.5.3.jar \
     && wget https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.4.1/kafka-clients-3.4.1.jar \
     && wget https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar \
+    && wget https://repo1.maven.org/maven2/org/elasticsearch/elasticsearch-spark-30_2.12/8.17.3/elasticsearch-spark-30_2.12-8.17.3.jar \
     && mv spark-sql-kafka-0-10_2.12-3.5.3.jar /opt/bitnami/spark/jars/ \
     && mv spark-streaming-kafka-0-10_2.12-3.5.3.jar /opt/bitnami/spark/jars/ \
     && mv spark-token-provider-kafka-0-10_2.12-3.5.3.jar /opt/bitnami/spark/jars/ \
     && mv kafka-clients-3.4.1.jar /opt/bitnami/spark/jars/ \
-    && mv commons-pool2-2.11.1.jar /opt/bitnami/spark/jars/
+    && mv commons-pool2-2.11.1.jar /opt/bitnami/spark/jars/ \
+    &&  mv elasticsearch-spark-30_2.12-8.17.3.jar /opt/bitnami/spark/jars/
 
 RUN wget https://jdbc.postgresql.org/download/postgresql-42.6.0.jar \
     && mv postgresql-42.6.0.jar /opt/bitnami/spark/jars/
