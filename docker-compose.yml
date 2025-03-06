@@ -133,7 +133,19 @@ services:
         condition: service_healthy
     networks:
       - kafka_network
-
+  spark-consumer:
+      build:
+          context: .
+          dockerfile: spark/Dockerfile
+      container_name: spark-consumer
+      env_file:
+        - .env      
+      depends_on:
+        - kafka
+        - postgres
+        - spark-master
+      networks:
+        - kafka_network
   # PostgreSQL (DB for Producer)
   postgres:
     image: postgres:latest
