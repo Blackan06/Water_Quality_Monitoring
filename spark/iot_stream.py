@@ -16,12 +16,19 @@ def run_spark_job():
     spark = SparkSession.builder \
         .appName("IoT Stream Analysis") \
         .master("local[*]") \
-        .config("spark.jars", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar,file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar,file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar") \
-        .config("spark.executor.extraClassPath", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar:file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar:file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar") \
+        .config("spark.jars", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar,"
+                            "file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar,"
+                            "file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar,"
+                            "file:///opt/bitnami/spark/jars/elasticsearch-spark-30_2.12-8.17.3.jar") \
+        .config("spark.executor.extraClassPath", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar:"
+                                            "file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar:"
+                                            "file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar:"
+                                            "file:///opt/bitnami/spark/jars/elasticsearch-spark-30_2.12-8.17.3.jar") \
         .config("spark.driver.extraJavaOptions", "-Djava.library.path=$JAVA_HOME/lib/server") \
         .config("spark.es.nodes", "localhost") \
         .config("spark.es.port", "9200") \
         .getOrCreate()
+
     spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 
 
