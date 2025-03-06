@@ -19,6 +19,8 @@ def run_spark_job():
         .config("spark.jars", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar,file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar,file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar") \
         .config("spark.executor.extraClassPath", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar:file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar:file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar") \
         .config("spark.driver.extraJavaOptions", "-Djava.library.path=$JAVA_HOME/lib/server") \
+        .config("spark.es.nodes", "localhost") \
+        .config("spark.es.port", "9200") \
         .getOrCreate()
     spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 
@@ -48,14 +50,15 @@ def run_spark_job():
     # Ghi dữ liệu vào PostgreSQL
 
     query = event_message_detail_df_3 \
-                .writeStream \
-                .trigger(processingTime='20 seconds') \
-                .outputMode("update") \
-                .foreachBatch(lambda current_df, epoch_id: save_to_postgresql_table(spark , current_df, epoch_id)) \
-                .start()
-    
+            .writeStream \
+            .trigger(processingTime='20 seconds') \
+            .outputMode("update") \
+            .format("org.elasticsearch.spark.sql") \
+            .option("es.resource", "iot-sensors/data")  \
+            .option("es.nodes", "localhost") \
+            .option("es.port", "9200")  \
+            .start()
 
-    # Chạy Spark Streaming cho đến khi dừng
     query.awaitTermination()
     
 run_spark_job()
