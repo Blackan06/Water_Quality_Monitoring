@@ -1,5 +1,15 @@
 
 services:
+
+  webserver:
+    networks:
+      - bigdata-network
+  scheduler:
+    networks:
+      - bigdata-network
+  triggerer:
+    networks:
+      - bigdata-network
   # Kafka Zookeeper
   zookeeper:
     image: bitnami/zookeeper:latest
@@ -12,7 +22,7 @@ services:
       - ZOOKEEPER_SYNC_LIMIT=2
       - ALLOW_ANONYMOUS_LOGIN=yes
     networks:
-      - kafka_network
+      - bigdata-network
 
   # Kafka Broker
   kafka:
@@ -37,7 +47,7 @@ services:
     depends_on:
       - zookeeper
     networks:
-      - kafka_network
+      - bigdata-network
 
   # Elasticsearch
   elasticsearch:
@@ -52,7 +62,7 @@ services:
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     networks:
-      - kafka_network
+      - bigdata-network
     ulimits:
       memlock:
         soft: -1
@@ -71,7 +81,7 @@ services:
     depends_on:
       - elasticsearch
     networks:
-      - kafka_network
+      - bigdata-network
 
   # Kafka Producer App
   kafka_producer:
@@ -89,7 +99,7 @@ services:
     depends_on:
       - kafka
     networks:
-      - kafka_network
+      - bigdata-network
 
   # Spark Master and Worker Nodes
   spark-master:
@@ -101,8 +111,11 @@ services:
     ports:
       - "8080:8080"  # Spark UI
       - "7077:7077"  # Spark master port
+    volumes:
+      - spark_checkpoint:/tmp/spark/checkpoint
+      - spark_commit_log:/tmp/spark/commit_log
     networks:
-      - kafka_network
+      - bigdata-network
 
   spark-worker:
     image: bitnami/spark:latest
@@ -113,7 +126,7 @@ services:
     ports:
       - "8081:8081"
     networks:
-      - kafka_network
+      - bigdata-network
 
   # Kafka UI (Lenses.io)
   kafka-ui:
@@ -131,7 +144,7 @@ services:
       kafka:
         condition: service_healthy
     networks:
-      - kafka_network
+      - bigdata-network
   spark-consumer:
       build:
           context: .
@@ -144,7 +157,7 @@ services:
         - postgres
         - spark-master
       networks:
-        - kafka_network
+        - bigdata-network
   # PostgreSQL (DB for Producer)
   postgres:
     image: postgres:latest
@@ -164,12 +177,14 @@ services:
     ports:
       - "5432:5432"
     networks:
-      - kafka_network
+      - bigdata-network
 
 networks:
-  kafka_network:
+  bigdata-network:
     driver: bridge
 
 volumes:
   postgres_data:
   elasticsearch_data:
+  spark_checkpoint:
+  spark_commit_log:

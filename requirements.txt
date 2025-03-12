@@ -1,7 +1,10 @@
 kafka-python
 requests
-restcountries
 psycopg2-binary
 python-dotenv
 pyspark
 pandas
+apache-airflow-providers-postgres
+minio==7.1.14
+apache-airflow-providers-docker==3.7.1
+
