@@ -6,7 +6,7 @@ from psycopg2 import sql
 from datetime import datetime
 from psycopg2.extras import execute_batch
 from pyspark.sql import functions as F
-from data.db_utils import save_to_postgresql_table
+from pyspark.sql.functions import  expr
 
 postgresql_table_name = "iot_sensor"
 
@@ -16,17 +16,18 @@ def run_spark_job():
     spark = SparkSession.builder \
         .appName("IoT Stream Analysis") \
         .master("local[*]") \
-        .config("spark.jars", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar,"
-                            "file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar,"
-                            "file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar,"
+        .config("spark.jars", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.2.0.jar,"
+                            "file:///opt/bitnami/spark/jars/kafka-clients-2.8.0.jar,"
+                            "file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.2.0.jar,"
                             "file:///opt/bitnami/spark/jars/elasticsearch-spark-30_2.12-8.17.3.jar") \
-        .config("spark.executor.extraClassPath", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.3.jar:"
-                                            "file:///opt/bitnami/spark/jars/kafka-clients-3.4.1.jar:"
-                                            "file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.5.3.jar:"
+        .config("spark.executor.extraClassPath", "file:///opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.2.0.jar:"
+                                            "file:///opt/bitnami/spark/jars/kafka-clients-2.8.0.jar:"
+                                            "file:///opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.2.0.jar:"
                                             "file:///opt/bitnami/spark/jars/elasticsearch-spark-30_2.12-8.17.3.jar") \
         .config("spark.driver.extraJavaOptions", "-Djava.library.path=$JAVA_HOME/lib/server") \
-        .config("spark.es.nodes", "localhost") \
+        .config("spark.es.nodes", "elasticsearch") \
         .config("spark.es.port", "9200") \
+        .config("es.nodes.wan.only", "true") \
         .getOrCreate()
 
     spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
@@ -53,7 +54,8 @@ def run_spark_job():
    
     event_message_detail_df_2 = iot_df.select(from_json(col("value"), schema).alias("event_message_detail"))
     event_message_detail_df_3 = event_message_detail_df_2.select("event_message_detail.*")
-   
+    event_message_detail_df_3 = event_message_detail_df_3.withColumn("id", expr("uuid()"))
+
     # Ghi dữ liệu vào PostgreSQL
 
     query = event_message_detail_df_3 \
@@ -62,8 +64,14 @@ def run_spark_job():
             .outputMode("update") \
             .format("org.elasticsearch.spark.sql") \
             .option("es.resource", "iot-sensors/data")  \
-            .option("es.nodes", "localhost") \
+            .option("es.nodes", "elasticsearch") \
             .option("es.port", "9200")  \
+            .option("es.nodes.wan.only", "true") \
+            .option("es.net.http.auth.user", "elastic") \
+            .option("es.net.http.auth.pass", "elasticpassword") \
+            .option("checkpointLocation", "/tmp/spark/checkpoint") \
+            .option("es.spark.sql.streaming.sink.log.path", "/tmp/spark/commit_log") \
+            .option("es.mapping.id", "id") \
             .start()
 
     query.awaitTermination()
