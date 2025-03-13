@@ -12,14 +12,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+              fetch-depth: 2
+              clean: false
+      - name: Install or update astro-cli
+        run: curl -sSL install.astronomer.io | sudo bash -s
 
-      - name: Install  Node.js, and npm
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y  nodejs npm
-
-          # Install or update astro-cli
-          curl -sSL https://install.astronomer.io | sudo bash
+          
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
         with:
@@ -31,11 +30,7 @@ jobs:
             # Navigate to your project directory
             cd Water_Quality_Monitoring 
 
-            # Ensure package.json exists
-            if [ ! -f package.json ]; then
-              echo "package.json not found! Please make sure it exists in the project directory."
-              exit 1
-            fi
+            
 
             # Pull the latest code from the repository
             git pull origin main
