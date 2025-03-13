@@ -37,14 +37,8 @@ jobs:
 
             #Astro config Docker
             astro config set container.binary docker -g
-                                                                                        ─╯
-            #Check db init
-            if airflow db check; then
-              echo "Database is already initialized."
-            else
-              echo "Initializing the database..."
-              airflow db init
-            fi
+                                                                                    
+            
           
             # Run astro dev start to automatically handle Docker Compose and Airflow setup
             echo "Starting Astro Dev with Docker (Astronomer)..."
