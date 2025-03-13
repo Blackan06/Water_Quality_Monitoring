@@ -18,7 +18,7 @@ jobs:
         with:
           username: ${{ secrets.VPS_USERNAME }}  # Use the username from GitHub Secrets
           host: ${{ secrets.VPS_HOST }}  # Use the VPS host (IP or domain) from GitHub Secrets
-          password: ${{ secrets.SSH_PASSWORD }}  # Use the SSH password stored in GitHub Secrets
+          password: ${{ secrets.VPS_PASSWORD }}  # Use the SSH password stored in GitHub Secrets
         
           script: |
             # Navigate to your project directory
