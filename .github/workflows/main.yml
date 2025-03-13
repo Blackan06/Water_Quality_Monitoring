@@ -1,39 +1,38 @@
-name: Deploy to VPS with SSH and Astro
+name: Deploy to VPS with Astro (Astronomer)
 
 on:
   push:
     branches:
-      - main  # Trigger on push to the main branch
+      - main  # Trigger the action on push to the main branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Add SSH known hosts
+      - name: Deploy to VPS and run Astro Dev Start (Astronomer)
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+          # Install SSH client and sshpass (for password authentication)
+          sudo apt-get update
+          sudo apt-get install -y sshpass
 
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.5.3
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # GitHub Secret
-
-      - name: Test SSH connection to VPS
-        run: |
-          echo "Testing SSH connection..."
-          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} 'echo "SSH connection successful!"'
-        
-      - name: Deploy to VPS and run Astro Dev Start
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
+          # Use sshpass to connect via SSH with password
+          sshpass -p ${{ secrets.VPS_PASSWORD }} ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
             # Navigate to your project directory
-            cd /path/to/your/project  # Update this path
-            git pull origin main  # Pull the latest changes
-            npm install  # Install dependencies
-            astro dev start  # Start Astro dev server with Docker
+            cd Water_Quality_Monitoring 
+
+            # Pull the latest code from the repository
+            git pull origin main
+
+            # Ensure all dependencies are installed
+            echo "Installing dependencies..."
+            npm install  # If you have any npm dependencies
+
+            # Run astro dev start to automatically handle Docker Compose and Airflow setup
+            echo "Starting Astro Dev with Docker (Astronomer)..."
+            astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
+
           EOF
