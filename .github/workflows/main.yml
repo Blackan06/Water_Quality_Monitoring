@@ -12,7 +12,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
+      - name: Install  Node.js, and npm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y  nodejs npm
+
+          # Install or update astro-cli
+          curl -sSL https://install.astronomer.io | sudo bash
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
         with:
@@ -21,12 +28,14 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}  # Use the SSH password stored in GitHub Secrets
         
           script: |
-            sudo apt-get update
-
-            sudo apt-get install -y nodejs npm
-
             # Navigate to your project directory
             cd Water_Quality_Monitoring 
+
+            # Ensure package.json exists
+            if [ ! -f package.json ]; then
+              echo "package.json not found! Please make sure it exists in the project directory."
+              exit 1
+            fi
 
             # Pull the latest code from the repository
             git pull origin main
