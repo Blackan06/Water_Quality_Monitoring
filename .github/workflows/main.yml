@@ -1,38 +1,39 @@
-name: Deploy to VPS with Astro (Astronomer)
+name: Deploy to VPS with SSH and Astro
 
 on:
   push:
     branches:
-      - main  # Trigger the action on push to the main branch
+      - main  # Trigger on push to the main branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Add SSH known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.5.3
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # GitHub Secret
 
-      - name: Deploy to VPS and run Astro Dev Start (Astronomer)
+      - name: Test SSH connection to VPS
+        run: |
+          echo "Testing SSH connection..."
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} 'echo "SSH connection successful!"'
+        
+      - name: Deploy to VPS and run Astro Dev Start
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
             # Navigate to your project directory
-            cd Water_Quality_Monitoring 
-
-            # Pull the latest code from the repository
-            git pull origin main
-
-            # Ensure all dependencies are installed
-            echo "Installing dependencies..."
-            npm install  # If you have any npm dependencies
-
-            # Run astro dev start to automatically handle Docker Compose and Airflow setup
-            echo "Starting Astro Dev with Docker (Astronomer)..."
-            astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
-
+            cd /path/to/your/project  # Update this path
+            git pull origin main  # Pull the latest changes
+            npm install  # Install dependencies
+            astro dev start  # Start Astro dev server with Docker
           EOF
