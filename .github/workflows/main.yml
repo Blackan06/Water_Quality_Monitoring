@@ -36,11 +36,24 @@ jobs:
             git pull origin main
 
             # Ensure all dependencies are installed
-            echo "Installing dependencies..."
-            npm install  # If you have any npm dependencies
-
-            # Run astro dev start to automatically handle Docker Compose and Airflow setup
-            echo "Starting Astro Dev with Docker (Astronomer)..."
-            astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
+            files=$(git diff --name-only $(git rev-parse HEAD~1) -- .)
+            dags_only=1
+            for file in $files; do
+            if [[ $file != dags/* ]]; then
+                echo "$file is not a dag, triggering a full image build"
+                dags_only=0
+                break
+            fi
+            done
+            ### If only DAGs changed deploy only the DAGs in your 'dags' folder to your Deployment
+            if [ $dags_only == 1 ]
+            then
+                astro deploy --dags
+            fi
+            ### If any other files changed build your Astro project into a Docker image, push the image to your Deployment, and then push and DAG changes
+            if [ $dags_only == 0 ]
+            then
+                astro deploy
+            fi
 
             
