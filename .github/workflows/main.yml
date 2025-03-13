@@ -38,7 +38,7 @@ jobs:
             #Astro config Docker
             astro config set container.binary docker -g
             #Astro config db 
-
+             astro dev object import                                                                                   ─╯
             #Check db init
             if airflow db check; then
               echo "Database is already initialized."
