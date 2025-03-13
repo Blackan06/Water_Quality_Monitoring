@@ -1,0 +1,38 @@
+name: Deploy to VPS with Astro (Astronomer)
+
+on:
+  push:
+    branches:
+      - main  # Trigger the action on push to the main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy to VPS and run Astro Dev Start (Astronomer)
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
+            # Navigate to your project directory
+            cd Water_Quality_Monitoring 
+
+            # Pull the latest code from the repository
+            git pull origin main
+
+            # Ensure all dependencies are installed
+            echo "Installing dependencies..."
+            npm install  # If you have any npm dependencies
+
+            # Run astro dev start to automatically handle Docker Compose and Airflow setup
+            echo "Starting Astro Dev with Docker (Astronomer)..."
+            astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
+
+          EOF
