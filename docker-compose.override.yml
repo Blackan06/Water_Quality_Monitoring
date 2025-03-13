@@ -1,15 +1,6 @@
 
 services:
 
-  webserver:
-    networks:
-      - bigdata-network
-  scheduler:
-    networks:
-      - bigdata-network
-  triggerer:
-    networks:
-      - bigdata-network
   # Kafka Zookeeper
   zookeeper:
     image: bitnami/zookeeper:latest
@@ -154,30 +145,10 @@ services:
         - .env      
       depends_on:
         - kafka
-        - postgres
         - spark-master
       networks:
         - bigdata-network
-  # PostgreSQL (DB for Producer)
-  postgres:
-    image: postgres:latest
-    container_name: postgres
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
-      interval: 30s
-      retries: 3
-      start_period: 10s
-      timeout: 5s
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: admin1234
-      POSTGRES_DB: WQI
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - bigdata-network
+
 
 networks:
   bigdata-network:

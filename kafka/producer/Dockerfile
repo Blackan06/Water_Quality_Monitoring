@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Thêm mã nguồn Producer vào container
 COPY ./kafka/producer/kafka_producer.py /app/kafka_producer.py
 
-COPY ./logs /app/logs
 
 # Thiết lập entrypoint để khởi chạy Producer
 CMD ["python3", "kafka_producer.py"]

@@ -4,7 +4,6 @@ import time
 import random
 import logging
 from json import dumps
-from logs.LogService import write_log_to_postgres
 # Configuration
 TOPIC_NAME_CONS = "water-quality-data"
 BOOTSTRAP_SERVERS_CONS = 'kafka:9092'
@@ -24,7 +23,7 @@ def create_kafka_producer():
     )
 
 def kafka_producer_task():
-    write_log_to_postgres('INFO', f"Water Quality Monitoring | Kafka Producer Application Started ...", 'kafka producer')
+    #write_log_to_postgres('INFO', f"Water Quality Monitoring | Kafka Producer Application Started ...", 'kafka producer')
     # Tạo Kafka Producer
     kafka_producer_obj = create_kafka_producer()
     i = 0
@@ -46,19 +45,19 @@ def kafka_producer_task():
             event_message["temperature"] = temperature
 
             logger.info(f"Sending message to Kafka topic: {TOPIC_NAME_CONS}")
-            write_log_to_postgres('INFO',f"Sending message to Kafka topic: {TOPIC_NAME_CONS}", 'kafka producer')
+            #write_log_to_postgres('INFO',f"Sending message to Kafka topic: {TOPIC_NAME_CONS}", 'kafka producer')
 
             logger.info(f"Message to be sent: {event_message}")
-            write_log_to_postgres('INFO',f"Message to be sent: {event_message}", 'kafka producer')
+            #write_log_to_postgres('INFO',f"Message to be sent: {event_message}", 'kafka producer')
 
             # Gửi thông điệp vào Kafka
             kafka_producer_obj.send(TOPIC_NAME_CONS, event_message)
             logger.info(f"Message successfully sent to Kafka topic: {TOPIC_NAME_CONS}")
-            write_log_to_postgres('INFO',f"Message successfully sent to Kafka topic: {TOPIC_NAME_CONS}", 'kafka producer')
+            #write_log_to_postgres('INFO',f"Message successfully sent to Kafka topic: {TOPIC_NAME_CONS}", 'kafka producer')
 
         except Exception as ex:
             logger.error(f"Event Message Construction Failed: {ex}")
-            write_log_to_postgres('ERROR',f"Event Message Construction Failed: {ex}", 'kafka producer')
+            #write_log_to_postgres('ERROR',f"Event Message Construction Failed: {ex}", 'kafka producer')
 
         # Chờ 1 giây trước khi gửi thông điệp tiếp theo
         time.sleep(1)
@@ -69,20 +68,20 @@ def kafka_producer_close(kafka_producer_obj):
     # Đảm bảo tất cả thông điệp đã được gửi và đóng Kafka producer
     try:
         logger.info("Flushing and closing Kafka producer...")
-        write_log_to_postgres('INFO',f"Flushing and closing Kafka producer...", 'kafka producer')
+        #write_log_to_postgres('INFO',f"Flushing and closing Kafka producer...", 'kafka producer')
 
         kafka_producer_obj.flush()
         kafka_producer_obj.close()
         logger.info("Kafka producer closed successfully.")
-        write_log_to_postgres('INFO',f"Kafka producer closed successfully.", 'kafka producer')
+        #write_log_to_postgres('INFO',f"Kafka producer closed successfully.", 'kafka producer')
 
     except Exception as ex:
         logger.error(f"Failed to flush and close Kafka producer: {ex}")
-        write_log_to_postgres('ERROR',f"Failed to flush and close Kafka producer: {ex}", 'kafka producer')
+        #write_log_to_postgres('ERROR',f"Failed to flush and close Kafka producer: {ex}", 'kafka producer')
 
 
     logger.info("Water Quality Monitoring | Kafka Producer Application Completed.")
-    write_log_to_postgres('INFO',f"Water Quality Monitoring | Kafka Producer Application Completed.", 'kafka producer')
+    #write_log_to_postgres('INFO',f"Water Quality Monitoring | Kafka Producer Application Completed.", 'kafka producer')
 
 if __name__ == '__main__':
     kafka_producer_task()
