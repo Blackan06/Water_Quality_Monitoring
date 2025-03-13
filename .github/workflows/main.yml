@@ -37,8 +37,7 @@ jobs:
 
             #Astro config Docker
             astro config set container.binary docker -g
-            #Astro config db 
-             astro dev object import                                                                                   ─╯
+                                                                                        ─╯
             #Check db init
             if airflow db check; then
               echo "Database is already initialized."
@@ -50,5 +49,6 @@ jobs:
             # Run astro dev start to automatically handle Docker Compose and Airflow setup
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
-
+            #Astro config db 
+            astro dev object import       
             
