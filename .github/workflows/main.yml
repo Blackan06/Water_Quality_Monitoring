@@ -11,16 +11,16 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Deploy to VPS and run Astro Dev Start (Astronomer)
-        run: |
-          # Install SSH client and sshpass (for password authentication)
-          sudo apt-get update
-          sudo apt-get install -y sshpass
-
-          # Use sshpass to connect via SSH with password
-          sshpass -p ${{ secrets.VPS_PASSWORD }} ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} << 'EOF'
+        uses: actions/checkout@v3
+      
+      - name: Deploy to VPS using SSH
+        uses: appleboy/ssh-action@master
+        with:
+          username: ${{ secrets.VPS_USERNAME }}  # Use the username from GitHub Secrets
+          host: ${{ secrets.VPS_HOST }}  # Use the VPS host (IP or domain) from GitHub Secrets
+          password: ${{ secrets.SSH_PASSWORD }}  # Use the SSH password stored in GitHub Secrets
+        
+          script: |
             # Navigate to your project directory
             cd Water_Quality_Monitoring 
 
@@ -35,4 +35,4 @@ jobs:
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
 
-          EOF
+            
