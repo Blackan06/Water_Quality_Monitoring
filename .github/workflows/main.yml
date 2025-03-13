@@ -21,6 +21,10 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}  # Use the SSH password stored in GitHub Secrets
         
           script: |
+            sudo apt-get update
+
+            sudo apt-get install -y nodejs npm
+
             # Navigate to your project directory
             cd Water_Quality_Monitoring 
 
