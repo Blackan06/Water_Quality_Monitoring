@@ -43,9 +43,6 @@ jobs:
             # Astro config Docker
             astro config set container.binary docker -g
 
-            # Astro config db 
-            astro dev object import
-
             # Run astro dev stop to automatically handle Docker Compose and Airflow setup
             echo "Stopping Astro Dev with Docker (Astronomer)..."
             astro dev stop  # Automatically builds and runs Docker containers for Airflow and your Astro project
