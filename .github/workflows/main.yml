@@ -38,20 +38,26 @@ jobs:
 
             # Log in to Docker container registry (e.g., Docker Hub or a private registry)
             echo "Logging in to Docker registry..."
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
 
             # Astro config Docker
             astro config set container.binary docker -g
 
-            # Run astro dev stop to automatically handle Docker Compose and Airflow setup
-            echo "Stopping Astro Dev with Docker (Astronomer)..."
-            astro dev stop  # Automatically builds and runs Docker containers for Airflow and your Astro project
+            # Kiểm tra nếu Astro Dev đang chạy (có container nào của Astro không?)
+            echo "Checking if Astro Dev is running..."
+            if docker ps | grep -q "airflow"; then
+              echo "Astro Dev is already running. Stopping it..."
+              # Dừng Astro Dev nếu đang chạy
+              astro dev stop
+            else
+              echo "Astro Dev is not running. Starting it..."
+            fi
 
-            # Run astro dev start to automatically handle Docker Compose and Airflow setup
+            # Khởi động lại Astro Dev
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
 
-            # Verify if Astro Dev started successfully
+            # Kiểm tra nếu Astro Dev đã khởi động thành công
             echo "Checking if project is running..."
             if ! docker ps | grep -q "airflow"; then
               echo "Airflow container not running. Exiting..."
