@@ -43,11 +43,6 @@ jobs:
             # Astro config Docker
             astro config set container.binary docker -g
 
-            # Kiểm tra xem có tệp astro.yaml không (để đảm bảo đây là dự án Astro)
-            if [ ! -f "astro.yaml" ]; then
-              echo "astro.yaml không tồn tại, sẽ chạy 'astro dev init' để khởi tạo dự án Astro..."
-              yes | astro dev init # Tạo lại cấu trúc dự án Astro nếu cần thiết
-            fi
 
             # Kiểm tra nếu Astro Dev đang chạy (có container nào của Astro không?)
             echo "Checking if Astro Dev is running..."
