@@ -24,7 +24,7 @@ jobs:
         with:
           username: ${{ secrets.VPS_USERNAME }}  # Use the username from GitHub Secrets
           host: ${{ secrets.VPS_HOST }}  # Use the VPS host (IP or domain) from GitHub Secrets
-          password: ${{ secrets.VPS_PASSWORD }}  # Use the SSH password stored in GitHub Secrets
+          key: ${{ secrets.VPS_PRIVATE_KEY }}  # Use the private key from GitHub Secrets
           script: |
             # Navigate to your project directory
             cd Water_Quality_Monitoring 
@@ -36,6 +36,20 @@ jobs:
             echo "Checking Docker status..."
             sudo systemctl status docker || sudo systemctl start docker
 
+            # Log in to Docker container registry (e.g., Docker Hub or a private registry)
+            echo "Logging in to Docker registry..."
+            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+
+            # Astro config Docker
+            astro config set container.binary docker -g
+
+            # Astro config db 
+            astro dev object import
+
+            # Run astro dev stop to automatically handle Docker Compose and Airflow setup
+            echo "Stopping Astro Dev with Docker (Astronomer)..."
+            astro dev stop  # Automatically builds and runs Docker containers for Airflow and your Astro project
+
             # Run astro dev start to automatically handle Docker Compose and Airflow setup
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
@@ -46,6 +60,3 @@ jobs:
               echo "Airflow container not running. Exiting..."
               exit 1
             fi
-
-            # Astro config db 
-            astro dev object import

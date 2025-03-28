@@ -10,7 +10,7 @@ airflow:
     - conn_id: postgres_connection
       conn_type: Postgres
       conn_host: 149.28.145.56
-      conn_schema: wqi
+      conn_schema: airflow
       conn_login: postgres
       conn_password: postgres1234
       conn_port: 5432

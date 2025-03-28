@@ -10,9 +10,11 @@ from pyspark.sql.functions import  expr
 
 postgresql_table_name = "iot_sensor"
 
-def run_spark_job():
-
-# Tạo SparkSession với cấu hình để tải Kafka dependencies
+def run_spark_job(**kwargs):
+    data = kwargs['ti'].xcom_pull(task_ids='kafka_consumer_task', key='kafka_data')
+    # Run spark job with the data
+    print(f"Running Spark job with data: {data}")
+    # Tạo SparkSession với cấu hình để tải Kafka dependencies
     spark = SparkSession.builder \
         .appName("IoT Stream Analysis") \
         .master("local[*]") \

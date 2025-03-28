@@ -1,6 +1,14 @@
 
 services:
-
+  webserver:
+    networks:
+      - bigdata-network
+  scheduler:
+    networks:
+      - bigdata-network
+  triggerer:
+    networks:
+      - bigdata-network
   # Kafka Zookeeper
   zookeeper:
     image: bitnami/zookeeper:latest
@@ -17,7 +25,7 @@ services:
 
   # Kafka Broker
   kafka:
-    image: bitnami/kafka:latest
+    image: bitnami/kafka:3.9
     container_name: kafka
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "kafka:9092"]
@@ -40,58 +48,6 @@ services:
     networks:
       - bigdata-network
 
-  # Elasticsearch
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.10.0
-    container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - ELASTIC_PASSWORD=elasticpassword
-    ports:
-      - "9200:9200"
-      - "9300:9300"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-    networks:
-      - bigdata-network
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-
-  # Kibana (For visualizing Elasticsearch data)
-  kibana:
-    image: docker.elastic.co/kibana/kibana:7.10.0
-    container_name: kibana
-    environment:
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=elasticpassword
-    ports:
-      - "5601:5601"  # Kibana UI
-    depends_on:
-      - elasticsearch
-    networks:
-      - bigdata-network
-
-  # Kafka Producer App
-  kafka_producer:
-    build:
-      context: .  
-      dockerfile: kafka/producer/Dockerfile  
-    container_name: kafka_producer
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - KAFKA_TOPIC=water-quality-data
-      - DB_HOST=postgres
-      - DB_USER=postgres
-      - DB_PASSWORD=admin1234
-      - DB_NAME=WQI
-    depends_on:
-      - kafka
-    networks:
-      - bigdata-network
-
   # Spark Master and Worker Nodes
   spark-master:
     image: bitnami/spark:latest
@@ -102,9 +58,6 @@ services:
     ports:
       - "8080:8080"  # Spark UI
       - "7077:7077"  # Spark master port
-    volumes:
-      - spark_checkpoint:/tmp/spark/checkpoint
-      - spark_commit_log:/tmp/spark/commit_log
     networks:
       - bigdata-network
 
@@ -129,33 +82,36 @@ services:
       - KAFKA_CLUSTERS_0_NAME=local-cluster
       - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_UI_AUTH_TYPE=BASIC
-      - KAFKA_UI_AUTH_USERNAME=admin
-      - KAFKA_UI_AUTH_PASSWORD=admin1234
+      - AUTH_TYPE=LOGIN_FORM
+      - SPRING_SECURITY_USER_NAME=admin
+      - SPRING_SECURITY_USER_PASSWORD=admin1234
     depends_on:
       kafka:
         condition: service_healthy
     networks:
       - bigdata-network
-  spark-consumer:
-      build:
-          context: .
-          dockerfile: spark/Dockerfile
-      container_name: spark-consumer
-      env_file:
-        - .env      
-      depends_on:
-        - kafka
-        - spark-master
-      networks:
-        - bigdata-network
+  wqi_api:
+    build:
+      context: ./api 
+    container_name: wqi_api
+    networks:
+      - bigdata-network
+    ports:
+      - "8018:8018"  # Cổng mà ứng dụng API sẽ chạy
 
+
+  docker-proxy:
+    image: alpine/socat
+    command: "TCP4-LISTEN:2375,fork,reuseaddr UNIX-CONNECT:/var/run/docker.sock"
+    ports:
+      - "2375:2375"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - bigdata-network
+  
 
 networks:
   bigdata-network:
     driver: bridge
 
-volumes:
-  postgres_data:
-  elasticsearch_data:
-  spark_checkpoint:
-  spark_commit_log:

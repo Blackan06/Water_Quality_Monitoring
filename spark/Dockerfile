@@ -40,7 +40,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Sao chép mã nguồn vào container
 COPY ./spark/iot_stream.py /app/iot_stream.py
-COPY ./data /app/data
 
 # Thiết lập môi trường Spark
 ENV SPARK_HOME=/opt/bitnami/spark
