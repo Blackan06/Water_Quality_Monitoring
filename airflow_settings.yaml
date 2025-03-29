@@ -12,7 +12,7 @@ airflow:
       conn_host: 149.28.145.56
       conn_schema: airflow
       conn_login: postgres
-      conn_password: postgres1234
+      conn_password: postgres
       conn_port: 5432
       conn_extra:
         example_extra_field: example-value

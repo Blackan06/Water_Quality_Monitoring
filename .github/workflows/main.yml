@@ -60,16 +60,16 @@ jobs:
 
             # Run the new container from the pulled image
             echo "Running the Docker container..."
-            docker run -d --name wqi_api -p 8018:8018 ${{ secrets.DOCKER_USER }}/dm_api:latest
+            docker run -d --name dm_api -p 8018:8018 --restart=always ${{ secrets.DOCKER_USER }}/dm_api:latest
 
             # Check if the container is running
-            if ! docker ps | grep -q "wqi_api"; then
-              echo "wqi_api container not running. Exiting..."
+            if ! docker ps | grep -q "dm_api"; then
+              echo "dm_api container not running. Exiting..."
               exit 1
             fi
 
             # Verify the container is running
-            echo "wqi_api container is running!"
+            echo "dm_api container is running!"
 
             # Prune unused Docker objects (images, containers, volumes, etc.)
             echo "Cleaning up unused Docker resources..."
