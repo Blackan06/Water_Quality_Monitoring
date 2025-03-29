@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI,HTTPException
 from pydantic import BaseModel
 import psycopg2
 import requests
@@ -6,6 +6,7 @@ import google.auth
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 import json
+from typing import Optional
 
 app = FastAPI()
 
@@ -43,7 +44,7 @@ access_token = credentials.token
 
 # Cấu trúc để lưu trữ token của thiết bị
 class DeviceToken(BaseModel):
-    id: int 
+    id: Optional[int] = None  # id có thể có hoặc không
     device_token: str
 
 # Kết nối đến PostgreSQL
@@ -72,46 +73,65 @@ def read_root():
     finally:
         # Đảm bảo rằng kết nối được đóng
         conn.close()
+        
 @app.post("/register-token")
 def register_token(device_token: DeviceToken):
     """
     API để nhận và lưu device token
     Nếu đã có id thì cập nhật device token, nếu chưa thì thêm mới
     """
-    device_token = device_token.device_token
-    current_time = 'CURRENT_TIMESTAMP'
+    # Lấy device_token từ dữ liệu nhận vào
+    device_token_value = device_token.device_token
+    id_value = device_token.id
+    current_time = 'CURRENT_TIMESTAMP'  # Sử dụng thời gian hiện tại của DB
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Kiểm tra nếu có id, nếu có thì tìm bản ghi theo id
-    cursor.execute('SELECT * FROM device_tokens WHERE id = %s', (device_token.id,))
-    existing_token = cursor.fetchone()
+    if id_value is not None:  # Kiểm tra nếu có id
+        # Nếu có id thì tìm bản ghi theo id
+        cursor.execute('SELECT * FROM device_tokens WHERE id = %s', (id_value,))
+        existing_token = cursor.fetchone()
 
-    if existing_token:
-        # Nếu đã có id thì update device token và cập nhật `updated_at`
-        cursor.execute('UPDATE device_tokens SET device_token = %s, updated_at = ' + current_time + ' WHERE id = %s RETURNING *', 
-                       (device_token.device_token, device_token.id))
-        updated_token = cursor.fetchone()
+        if existing_token:
+            # Nếu đã có id thì update device token và cập nhật `updated_at`
+            cursor.execute('UPDATE device_tokens SET device_token = %s, updated_at = ' + current_time + ' WHERE id = %s RETURNING *',
+                           (device_token_value, id_value))
+            updated_token = cursor.fetchone()
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return {
+                'message': 'Device token updated successfully',
+                'data': {'id': updated_token[0], 'device_token': updated_token[1]}
+            }
+        else:
+            # Nếu id không tồn tại, thêm mới bản ghi
+            cursor.execute('INSERT INTO device_tokens (device_token, created_at, updated_at) VALUES (%s, ' + current_time + ', ' + current_time + ') RETURNING *', 
+                           (device_token_value,))
+            new_token = cursor.fetchone()
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            return {
+                'message': 'Device token registered successfully',
+                'data': {'id': new_token[0], 'device_token': new_token[1]}
+            }
+
+    else:
+        # Nếu không có id (thêm mới)
+        cursor.execute('INSERT INTO device_tokens (device_token, created_at, updated_at) VALUES (%s, ' + current_time + ', ' + current_time + ') RETURNING *', 
+                       (device_token_value,))
+        new_token = cursor.fetchone()
         conn.commit()
         cursor.close()
         conn.close()
+
         return {
-            'message': 'Device token updated successfully',
-            'data': {'id': updated_token[0], 'device_token': updated_token[1]}
+            'message': 'Device token registered successfully',
+            'data': {'id': new_token[0], 'device_token': new_token[1]}
         }
-
-    # Nếu không có id (hoặc id không tồn tại), thực hiện thêm mới bản ghi
-    cursor.execute('INSERT INTO device_tokens (device_token, created_at, updated_at) VALUES (%s, ' + current_time + ', ' + current_time + ') RETURNING *', (device_token.device_token,))
-    new_token = cursor.fetchone()
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-    return {
-        'message': 'Device token registered successfully',
-        'data': {'id': new_token[0], 'device_token': new_token[1]}
-    }
 
 
 @app.post("/send-notification")
