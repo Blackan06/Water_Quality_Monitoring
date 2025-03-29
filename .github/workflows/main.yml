@@ -38,7 +38,7 @@ jobs:
 
             # Log in to Docker container registry (e.g., Docker Hub or a private registry)
             echo "Logging in to Docker registry..."
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
+            echo ${{ secrets.DOCKER_PASSWORD }} | docker login https://sgp.vultrcr.com/pipelineiot -u ${{ secrets.DOCKER_USER }} --password-stdin
 
             # Astro config Docker
             astro config set container.binary docker -g
