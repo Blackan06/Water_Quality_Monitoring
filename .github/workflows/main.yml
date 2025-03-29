@@ -128,8 +128,8 @@ jobs:
            
             #Start Again
             echo "Start Again"
-            docker restart water-quality-monitoring_08846d-web-server-1 
-            
+            docker restart water-quality-monitoring_08846d-webserver-1 
+
             echo "Checking if project is running..."
             if ! docker ps | grep -q "airflow"; then
               echo "Airflow container not running. Exiting..."
