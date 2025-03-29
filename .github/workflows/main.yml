@@ -24,7 +24,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
-          context: ./Water_Quality_Monitoring/api  
+          context: ./api  
           push: true
           tags: ${{ secrets.DOCKER_USER }}/dm_api:latest
           no-cache: true
