@@ -9,9 +9,7 @@ import json
 
 app = FastAPI()
 
-@app.get("/")
-def read_root():
-    return {"message": "Hello, World!"}
+
 # Định nghĩa cấu trúc dữ liệu cho yêu cầu gửi thông báo
 class NotificationRequest(BaseModel):
     device_token: str
@@ -53,6 +51,27 @@ def get_db_connection():
     conn = psycopg2.connect(**DB_CONFIG)
     return conn
 
+@app.get("/")
+def read_root():
+    # Kết nối đến cơ sở dữ liệu
+    conn = get_db_connection()
+
+    try:
+        # Tạo cursor để thực hiện câu truy vấn
+        with conn.cursor() as cursor:
+            # Truy vấn tất cả bản ghi trong bảng device_tokens
+            cursor.execute('SELECT * FROM device_tokens')
+            list_device = cursor.fetchall()  # Sử dụng fetchall để lấy tất cả bản ghi
+
+        return {"device_tokens": list_device}
+
+    except Exception as e:
+        # Xử lý lỗi nếu có
+        return {"error": str(e)}
+
+    finally:
+        # Đảm bảo rằng kết nối được đóng
+        conn.close()
 @app.post("/register-token")
 def register_token(device_token: DeviceToken):
     """
