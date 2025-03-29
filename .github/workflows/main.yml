@@ -24,11 +24,11 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
-          context: ./api  
+          context: .  
           push: true
           tags: ${{ secrets.DOCKER_USER }}/dm_api:latest
           no-cache: true
-          file: ./Water_Quality_Monitoring/api/Dockerfile 
+          file: ./api/Dockerfile 
 
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
