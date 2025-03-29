@@ -44,7 +44,7 @@ access_token = credentials.token
 
 # Cấu trúc để lưu trữ token của thiết bị
 class DeviceToken(BaseModel):
-    device_id: uuid.UUID  # device_id là UUID
+    id: Optional[int] = None   
     device_token: str
 
 # Kết nối đến PostgreSQL
@@ -78,23 +78,22 @@ def read_root():
 def register_token(device_token: DeviceToken):
     """
     API để nhận và lưu device token
-    Nếu đã có device_id thì cập nhật device token, nếu chưa thì thêm mới
     """
     # Lấy device_token và device_id từ dữ liệu nhận vào
     device_token_value = device_token.device_token
-    device_id_value = device_token.device_id
+    device_id_value = device_token.id
     current_time = 'CURRENT_TIMESTAMP'  # Sử dụng thời gian hiện tại của DB
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     # Kiểm tra nếu device_id đã có trong cơ sở dữ liệu
-    cursor.execute('SELECT * FROM device_tokens WHERE device_id = %s', (device_id_value,))
+    cursor.execute('SELECT * FROM device_tokens WHERE id = %s', (device_id_value,))
     existing_token = cursor.fetchone()
 
     if existing_token:
         # Nếu đã có device_id thì update device token và cập nhật `updated_at`
-        cursor.execute('UPDATE device_tokens SET device_token = %s, updated_at = ' + current_time + ' WHERE device_id = %s RETURNING *',
+        cursor.execute('UPDATE device_tokens SET device_token = %s, updated_at = ' + current_time + ' WHERE id = %s RETURNING *',
                        (device_token_value, device_id_value))
         updated_token = cursor.fetchone()
         conn.commit()
@@ -102,7 +101,7 @@ def register_token(device_token: DeviceToken):
         conn.close()
         return {
             'message': 'Device token updated successfully',
-            'data': {'device_id': updated_token[1], 'device_token': updated_token[2]}
+            'data': {'id': updated_token[1], 'device_token': updated_token[2]}
         }
     else:
         # Nếu không có device_id (thêm mới)
