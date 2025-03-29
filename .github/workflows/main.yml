@@ -24,10 +24,11 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
-          context: .
+          context: ./Water_Quality_Monitoring/api  
           push: true
-          tags: ${{ secrets.DOCKER_USER }}/water-quality-monitoring_08846d-wqi_api:latest
+          tags: ${{ secrets.DOCKER_USER }}/dm_api:latest
           no-cache: true
+          file: ./Water_Quality_Monitoring/api/Dockerfile 
 
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
@@ -48,14 +49,38 @@ jobs:
 
             # Log in to Docker container registry (e.g., Docker Hub or a private registry)
             echo "Logging in to Docker registry..."
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login https://sgp.vultrcr.com/pipelineiot -u ${{ secrets.DOCKER_USER }} --password-stdin
+            echo ${{ secrets.DOCKER_PASSWORD }} | docker login  -u ${{ secrets.DOCKER_USER }} --password-stdin
             echo "Pulling Docker image from Docker registry..."
-            docker pull ${{ secrets.DOCKER_USER }}/water-quality-monitoring_08846d-wqi_api:latest
+            docker pull ${{ secrets.DOCKER_USER }}/dm_api:latest
+
+            # Stop and remove any existing containers before running a new one
+            echo "Stopping and removing existing container..."
+            docker stop wqi_api || true  # Stop container if running
+            docker rm wqi_api || true    # Remove container
+
+            # Run the new container from the pulled image
+            echo "Running the Docker container..."
+            docker run -d --name wqi_api -p 8018:8018 ${{ secrets.DOCKER_USER }}/dm_api:latest
+
+            # Check if the container is running
+            if ! docker ps | grep -q "wqi_api"; then
+              echo "wqi_api container not running. Exiting..."
+              exit 1
+            fi
+
+            # Verify the container is running
+            echo "wqi_api container is running!"
+
+            # Prune unused Docker objects (images, containers, volumes, etc.)
+            echo "Cleaning up unused Docker resources..."
+            docker system prune -f  # Force prune to clean up unused images, containers, and volumes            
+            
             # Astro config Docker
             astro config set container.binary docker -g
+            
             # Astro change port web server
             astro config set -g webserver.port 8089
-            # Build Image Web-API Device Token
+            
 
             # Kiểm tra nếu Astro Dev đang chạy (có container nào của Astro không?)
             echo "Checking if Astro Dev is running..."

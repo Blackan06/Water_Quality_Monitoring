@@ -90,14 +90,7 @@ services:
         condition: service_healthy
     networks:
       - bigdata-network
-  wqi_api:
-    build:
-      context: ./api 
-    container_name: wqi_api
-    networks:
-      - bigdata-network
-    ports:
-      - "8018:8018"  # Cổng mà ứng dụng API sẽ chạy
+
 
 
   docker-proxy:
