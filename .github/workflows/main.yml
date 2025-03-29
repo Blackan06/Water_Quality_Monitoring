@@ -15,9 +15,23 @@ jobs:
         with:
           fetch-depth: 2
           clean: false
-
+      - name: Install Docker CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker.io
       - name: Install or update astro-cli
         run: curl -sSL install.astronomer.io | sudo bash -s
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
+
+      - name: Build Docker image for wqi_api
+        run: |
+          cd Water_Quality_Monitoring/api
+          docker build -t ${{ secrets.DOCKER_USER }}/water-quality-monitoring_08846d-wqi_api:latest .
+
+      - name: Push Docker image to Docker registry
+        run: |
+          docker push ${{ secrets.DOCKER_USER }}/water-quality-monitoring_08846d-wqi_api:latest
 
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
@@ -39,10 +53,13 @@ jobs:
             # Log in to Docker container registry (e.g., Docker Hub or a private registry)
             echo "Logging in to Docker registry..."
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login https://sgp.vultrcr.com/pipelineiot -u ${{ secrets.DOCKER_USER }} --password-stdin
-
+            echo "Pulling Docker image from Docker registry..."
+            docker pull ${{ secrets.DOCKER_USER }}/water-quality-monitoring_08846d-wqi_api:latest
             # Astro config Docker
             astro config set container.binary docker -g
-
+            # Astro change port web server
+            astro config set -g webserver.port 8089
+            # Build Image Web-API Device Token
 
             # Kiểm tra nếu Astro Dev đang chạy (có container nào của Astro không?)
             echo "Checking if Astro Dev is running..."
