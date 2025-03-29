@@ -43,9 +43,39 @@ jobs:
             # Pull the latest code from the repository
             git pull origin main
 
+            
+
             # Check Docker status
             echo "Checking Docker status..."
             sudo systemctl status docker || sudo systemctl start docker
+
+            #Remove All Docker
+            echo "Remove All Docker.."
+            # Dừng tất cả các container
+            docker stop $(docker ps -aq)
+
+            # Xóa tất cả các container (force)
+            docker rm $(docker ps -aq) -f
+
+            # Xóa tất cả các image (force)
+            docker rmi $(docker images -aq) -f
+
+            # Xóa tất cả các volume (force)
+            docker volume rm $(docker volume ls -q) -f
+
+            # Xóa tất cả các network không sử dụng
+            docker network prune -f
+
+            # Dọn dẹp hệ thống Docker (containers, images, volumes, networks không sử dụng)
+            docker system prune -a -f
+
+            # Xóa các builder không sử dụng
+            docker builder prune --all --force
+
+            # (Tùy chọn) Xóa tất cả các image (force) - lặp lại nếu cần
+            docker rmi -f $(docker images -q)
+                        
+
 
             # Log in to Docker container registry (e.g., Docker Hub or a private registry)
             echo "Logging in to Docker registry..."
@@ -96,7 +126,10 @@ jobs:
             docker rm water-quality-monitoring_08846d-postgres-1
             docker rmi postgres:12.6
            
-            # Kiểm tra nếu Astro Dev đã khởi động thành công
+            #Start Again
+            echo "Start Again"
+            docker restart water-quality-monitoring_08846d-web-server-1 
+            
             echo "Checking if project is running..."
             if ! docker ps | grep -q "airflow"; then
               echo "Airflow container not running. Exiting..."

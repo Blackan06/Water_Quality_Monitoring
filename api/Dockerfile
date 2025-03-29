@@ -1,11 +1,12 @@
 # Sử dụng image Python chính thức từ Docker Hub
 FROM python:3.9-slim
 
+COPY . /app
+
 # Thiết lập thư mục làm việc
 WORKDIR /app
 
-# Sao chép tất cả các tệp của dự án vào thư mục làm việc trong container
-COPY . /app
+
 # Cài đặt các thư viện cần thiết
 RUN pip install google-auth requests fastapi uvicorn psycopg2-binary 
 

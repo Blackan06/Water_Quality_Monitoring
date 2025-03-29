@@ -9,6 +9,9 @@ import json
 
 app = FastAPI()
 
+@app.get("/")
+def read_root():
+    return {"message": "Hello, World!"}
 # Định nghĩa cấu trúc dữ liệu cho yêu cầu gửi thông báo
 class NotificationRequest(BaseModel):
     device_token: str
