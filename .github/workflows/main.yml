@@ -68,9 +68,7 @@ jobs:
               exit 1
             fi
 
-            # Verify the container is running
-            echo "dm_api container is running!"
-
+            
             # Prune unused Docker objects (images, containers, volumes, etc.)
             echo "Cleaning up unused Docker resources..."
             docker system prune -f  # Force prune to clean up unused images, containers, and volumes            
@@ -96,7 +94,7 @@ jobs:
             #Rm Docker Db
             echo "Remove Db Docker"
             docker rm water-quality-monitoring_08846d-postgres-1
-            docker rmi postgres
+            docker rmi postgres:12.6
            
             # Kiểm tra nếu Astro Dev đã khởi động thành công
             echo "Checking if project is running..."

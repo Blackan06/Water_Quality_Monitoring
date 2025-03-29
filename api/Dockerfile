@@ -13,4 +13,4 @@ RUN pip install google-auth requests fastapi uvicorn psycopg2-binary
 EXPOSE 8018
 
 # Lệnh để chạy ứng dụng Flask (hoặc FastAPI)
-CMD ["uvicorn", "app.api_wqi:app", "--host", "0.0.0.0", "--port", "8018"]
+CMD ["uvicorn", "api_wqi:app", "--host", "0.0.0.0", "--port", "8018"]
