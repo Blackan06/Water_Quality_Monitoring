@@ -1,5 +1,5 @@
+duplicate_volumes: "false"
 postgres:
-    host: 149.28.145.56
     password: postgres
     port: "5432"
     user: postgres
