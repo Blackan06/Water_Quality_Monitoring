@@ -8,14 +8,11 @@ from google.oauth2 import service_account
 import json
 from typing import Optional
 import uuid
-
+from datetime import datetime
+import firebase_admin
+from firebase_admin import credentials, messaging
 app = FastAPI()
 
-# Định nghĩa cấu trúc dữ liệu cho yêu cầu gửi thông báo
-class NotificationRequest(BaseModel):
-    device_token: str
-    title: str
-    message: str
 
 # Khai báo cấu hình PostgreSQL
 DB_CONFIG = {
@@ -26,27 +23,10 @@ DB_CONFIG = {
     'port': '5432'
 }
 
-# Đường dẫn đến tệp Service Account JSON của bạn
-SERVICE_ACCOUNT_FILE = '/app/api/firebase-adminsdk.json'
-
-# Xác thực và lấy token truy cập
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE,
-    scopes=["https://www.googleapis.com/auth/firebase.messaging"]
-)
-
-# Refresh token nếu cần thiết
-if credentials.expired and credentials.refresh_token:
-    credentials.refresh(Request())
-
-# Lấy token truy cập từ credentials
-access_token = credentials.token
-
 # Cấu trúc để lưu trữ token của thiết bị
 class DeviceToken(BaseModel):
     id: Optional[int] = None   
     device_token: str
-
 # Kết nối đến PostgreSQL
 def get_db_connection():
     conn = psycopg2.connect(**DB_CONFIG)
@@ -82,7 +62,6 @@ def register_token(device_token: DeviceToken):
     # Lấy device_token và device_id từ dữ liệu nhận vào
     device_token_value = device_token.device_token
     device_id_value = device_token.id
-    current_time = 'CURRENT_TIMESTAMP'  # Sử dụng thời gian hiện tại của DB
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -93,7 +72,7 @@ def register_token(device_token: DeviceToken):
 
     if existing_token:
         # Nếu đã có device_id thì update device token và cập nhật `updated_at`
-        cursor.execute('UPDATE device_tokens SET device_token = %s, updated_at = ' + current_time + ' WHERE id = %s RETURNING *',
+        cursor.execute('UPDATE device_tokens SET device_token = %s WHERE id = %s RETURNING *',
                        (device_token_value, device_id_value))
         updated_token = cursor.fetchone()
         conn.commit()
@@ -105,8 +84,11 @@ def register_token(device_token: DeviceToken):
         }
     else:
         # Nếu không có device_id (thêm mới)
-        cursor.execute('INSERT INTO device_tokens (device_id, device_token, created_at, updated_at) VALUES (%s, %s, ' + current_time + ', ' + current_time + ') RETURNING *', 
-                       (device_id_value, device_token_value))
+        current_time = datetime.now()
+
+        cursor.execute('INSERT INTO device_tokens (device_token, created_at, updated_at) VALUES (%s, %s, %s) RETURNING *',
+                    (device_token_value, current_time, current_time))
+
         new_token = cursor.fetchone()
         conn.commit()
         cursor.close()
@@ -114,44 +96,72 @@ def register_token(device_token: DeviceToken):
 
         return {
             'message': 'Device token registered successfully',
-            'data': {'device_id': new_token[1], 'device_token': new_token[2]}
+            'data': {'id': new_token[1], 'device_token': new_token[2]}
         }
+# Định nghĩa cấu trúc dữ liệu cho yêu cầu gửi thông báo
+class NotificationRequest(BaseModel):
+    device_token: str
+    title: str
+    message: str
 
+# Đường dẫn đến tệp Service Account JSON
+SERVICE_ACCOUNT_FILE = '/app/api/firebase-adminsdk.json'
+SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
+
+def _get_access_token():
+    """Retrieve a valid access token that can be used to authorize requests.
+
+    :return: Access token.
+    """
+    credentials = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    request = google.auth.transport.requests.Request()
+    credentials.refresh(request)
+    return credentials.token
 
 @app.post("/send-notification")
 def send_notification(request: NotificationRequest):
     """
     Gửi thông báo đẩy tới thiết bị với device_token
     """
-    # Lấy thông tin từ request
-    device_token = request.device_token
-    title = request.title
-    message = request.message
+    try:
+        # Lấy token truy cập mới
+        access_token = _get_access_token()
+        
+        # Lấy thông tin từ request
+        device_token = request.device_token
+        title = request.title
+        message = request.message
 
-    # API endpoint FCM V1
-    url = "https://fcm.googleapis.com/v1/projects/watermonitoring-aaf32/messages:send"  # Thay YOUR_PROJECT_ID bằng ID dự án Firebase của bạn
+        # API endpoint FCM V1
+        url = "https://fcm.googleapis.com/v1/projects/watermonitoring-aaf32/messages:send"
 
-    # Dữ liệu thông báo
-    message_data = {
-        "message": {
-            "token": device_token,
-            "notification": {
-                "title": title,
-                "body": message
+        # Dữ liệu thông báo
+        message_data = {
+            "message": {
+                "token": device_token,
+                "notification": {
+                    "title": title,
+                    "body": message
+                }
             }
         }
-    }
 
-    # Gửi yêu cầu POST tới FCM API
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
+        # Gửi yêu cầu POST tới FCM API
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
 
-    response = requests.post(url, headers=headers, data=json.dumps(message_data))
+        response = requests.post(url, headers=headers, json=message_data)
 
-    # Kiểm tra kết quả
-    if response.status_code == 200:
-        return {"message": "Notification sent successfully", "result": response.json()}
-    else:
-        return {"message": "Failed to send notification", "error": response.text}
+        # Kiểm tra kết quả
+        if response.status_code == 200:
+            return {"message": "Notification sent successfully", "result": response.json()}
+        else:
+            print(f"FCM Error: {response.text}")
+            return {"message": "Failed to send notification", "error": response.text}
+            
+    except Exception as e:
+        print(f"Exception: {str(e)}")
+        return {"message": "Failed to send notification", "error": str(e)}

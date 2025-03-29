@@ -10,7 +10,7 @@ WORKDIR /app
 
 
 # Cài đặt các thư viện cần thiết
-RUN pip install google-auth requests fastapi uvicorn psycopg2-binary 
+RUN pip install google-auth requests fastapi uvicorn psycopg2-binary firebase-admin
 
 # Mở cổng mà ứng dụng sẽ lắng nghe
 EXPOSE 8018
