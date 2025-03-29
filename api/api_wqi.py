@@ -27,7 +27,7 @@ DB_CONFIG = {
 }
 
 # Đường dẫn đến tệp Service Account JSON của bạn
-SERVICE_ACCOUNT_FILE = 'firebase-adminsdk.json'
+SERVICE_ACCOUNT_FILE = '/app/api/firebase-adminsdk.json'
 
 # Xác thực và lấy token truy cập
 credentials = service_account.Credentials.from_service_account_file(
