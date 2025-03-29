@@ -3,7 +3,7 @@ FROM python:3.9-slim
 
 COPY . /app
 
-COPY firebase-adminsdk.json /app/api/firebase-adminsdk.json
+COPY api/firebase-adminsdk.json /app/api/firebase-adminsdk.json
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
