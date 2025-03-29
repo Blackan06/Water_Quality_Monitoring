@@ -23,7 +23,7 @@ DB_CONFIG = {
     'user': 'admin',
     'password': 'admin1234',
     'host': '149.28.145.56',
-    'port': '5433'
+    'port': '5432'
 }
 
 # Đường dẫn đến tệp Service Account JSON của bạn
