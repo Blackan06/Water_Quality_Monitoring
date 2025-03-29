@@ -55,8 +55,8 @@ jobs:
 
             # Stop and remove any existing containers before running a new one
             echo "Stopping and removing existing container..."
-            docker stop wqi_api || true  # Stop container if running
-            docker rm wqi_api || true    # Remove container
+            docker stop dm_api || true  # Stop container if running
+            docker rm dm_api || true    # Remove container
 
             # Run the new container from the pulled image
             echo "Running the Docker container..."
