@@ -29,6 +29,7 @@ DB_CONFIG = {
 class DeviceToken(BaseModel):
     id: Optional[int] = None   
     device_token: str
+    user_id : int
 class User(BaseModel):
     username: str
     password: str
@@ -140,18 +141,19 @@ def register_token(device_token: DeviceToken):
     # Lấy device_token và device_id từ dữ liệu nhận vào
     device_token_value = device_token.device_token
     device_id_value = device_token.id
+    device_user_id_value = device_token.user_id
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     # Kiểm tra nếu device_id đã có trong cơ sở dữ liệu
-    cursor.execute('SELECT * FROM device_tokens WHERE id = %s', (device_id_value,))
+    cursor.execute('SELECT * FROM device_tokens WHERE user_id = %s', (device_user_id_value,))
     existing_token = cursor.fetchone()
 
     if existing_token:
         # Nếu đã có device_id thì update device token và cập nhật `updated_at`
-        cursor.execute('UPDATE device_tokens SET device_token = %s WHERE id = %s RETURNING *',
-                       (device_token_value, device_id_value))
+        cursor.execute('UPDATE device_tokens SET device_token = %s WHERE user_id = %s RETURNING *',
+                       (device_token_value, device_user_id_value))
         updated_token = cursor.fetchone()
         conn.commit()
         cursor.close()
@@ -164,8 +166,8 @@ def register_token(device_token: DeviceToken):
         # Nếu không có device_id (thêm mới)
         current_time = datetime.now()
 
-        cursor.execute('INSERT INTO device_tokens (device_token, created_at, updated_at) VALUES (%s, %s, %s) RETURNING *',
-                    (device_token_value, current_time, current_time))
+        cursor.execute('INSERT INTO device_tokens (device_token,user_id, created_at, updated_at) VALUES (%s,%s, %s, %s) RETURNING *',
+                    (device_token_value,device_user_id_value, current_time, current_time))
 
         new_token = cursor.fetchone()
         conn.commit()

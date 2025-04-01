@@ -49,6 +49,8 @@ def train_model(batch_df):
     # Chuẩn bị dữ liệu training với VectorAssembler
     assembler = VectorAssembler(inputCols=["temperature"], outputCol="features")
     training_data = assembler.transform(training_df).select("features", col("ph_value").alias("label"))
+    
+    # Nếu cần cache, có thể cache dữ liệu batch này (lưu ý: đây là batch DataFrame, không phải streaming DataFrame)
     training_data.cache()
 
     # Khởi tạo và training mô hình Linear Regression
@@ -146,7 +148,8 @@ def run_spark_job(**kwargs):
     iot_df = kafka_df.selectExpr("CAST(value AS STRING) as value")
     json_df = iot_df.select(from_json(col("value"), schema).alias("data")).select("data.*")
     json_df = add_uuid(json_df)
-    json_df.cache()
+    # Lưu ý: Không gọi cache() trên streaming DataFrame
+    # json_df.cache()  <- Đã bị loại bỏ để tránh lỗi AnalysisException
 
     query = json_df.writeStream \
         .trigger(processingTime='30 seconds') \
