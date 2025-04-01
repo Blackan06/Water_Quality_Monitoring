@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 import psycopg2
 import requests
@@ -11,12 +11,14 @@ import uuid
 from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, messaging
+from passlib.context import CryptContext
+
 app = FastAPI()
 
 
 # Khai báo cấu hình PostgreSQL
 DB_CONFIG = {
-    'dbname': 'device_tokens',
+    'dbname': 'wqi_project',
     'user': 'postgres',
     'password': 'postgres',
     'host': '149.28.145.56',
@@ -27,10 +29,86 @@ DB_CONFIG = {
 class DeviceToken(BaseModel):
     id: Optional[int] = None   
     device_token: str
+class User(BaseModel):
+    username: str
+    password: str
+
+# Cấu trúc trả về khi đăng ký người dùng
+class UserOut(BaseModel):
+    username: str
+    id: int
+    
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 # Kết nối đến PostgreSQL
 def get_db_connection():
     conn = psycopg2.connect(**DB_CONFIG)
     return conn
+
+@app.post("/register")
+def register_user(user: User):
+    """
+    API đăng ký tài khoản người dùng
+    """
+    hashed_password = pwd_context.hash(user.password)  # Mã hóa mật khẩu
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('SELECT * FROM users WHERE username = %s', (user.username,))
+        existing_user = cursor.fetchone()
+
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already exists")
+
+        cursor.execute(
+            'INSERT INTO users (username, password) VALUES (%s, %s) RETURNING id, username',
+            (user.username, hashed_password)
+        )
+        new_user = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "User created successfully", "user": UserOut(username=new_user[1], id=new_user[0])}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error occurred: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.post("/login")
+def login_user(user: User):
+    """
+    API đăng nhập người dùng
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('SELECT * FROM users WHERE username = %s', (user.username,))
+        existing_user = cursor.fetchone()
+
+        if not existing_user:
+            raise HTTPException(status_code=400, detail="Invalid username or password")
+
+        stored_password = existing_user[2]  # Lấy mật khẩu đã mã hóa từ cơ sở dữ liệu
+
+        # Kiểm tra mật khẩu
+        if not pwd_context.verify(user.password, stored_password):
+            raise HTTPException(status_code=400, detail="Invalid username or password")
+
+        return {"message": "Login successful", "user": {"username": existing_user[1], "id": existing_user[0]}}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error occurred: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
 
 @app.get("/")
 def read_root():
@@ -105,7 +183,7 @@ class NotificationRequest(BaseModel):
     message: str
 
 # Đường dẫn đến tệp Service Account JSON
-SERVICE_ACCOUNT_FILE = '/app/api/firebase-adminsdk.json'
+SERVICE_ACCOUNT_FILE = '//Users/kiethuynhanh/Documents/THACSIDOCUMENT/Water_Quality_Monitoring/api/firebase-adminsdk.json'
 SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
 
 def _get_access_token():

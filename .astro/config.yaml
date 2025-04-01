@@ -1,7 +1,5 @@
 duplicate_volumes: "false"
 postgres:
-    password: postgres
-    port: "5434"
-    user: postgres
+    port: "5432"
 project:
     name: water-quality-monitoring
