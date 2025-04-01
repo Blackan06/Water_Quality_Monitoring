@@ -27,7 +27,6 @@ DB_CONFIG = {
 
 # Cấu trúc để lưu trữ token của thiết bị
 class DeviceToken(BaseModel):
-    id: Optional[int] = None   
     device_token: str
     user_id : int
 class User(BaseModel):
@@ -111,73 +110,97 @@ def login_user(user: User):
 
 
 
-@app.get("/")
+@app.get("/list_tokens")
 def read_root():
-    # Kết nối đến cơ sở dữ liệu
     conn = get_db_connection()
-
     try:
-        # Tạo cursor để thực hiện câu truy vấn
         with conn.cursor() as cursor:
-            # Truy vấn tất cả bản ghi trong bảng device_tokens
-            cursor.execute('SELECT * FROM device_tokens')
-            list_device = cursor.fetchall()  # Sử dụng fetchall để lấy tất cả bản ghi
+            cursor.execute('SELECT id, user_id, device_token, created_at, updated_at FROM device_tokens')
+            rows = cursor.fetchall()
+            
+            list_device = [
+                {
+                    "id": row[0],
+                    "user_id": row[1],
+                    "device_token": row[2],
+                    "created_at": row[3].isoformat(),
+                    "updated_at": row[4].isoformat()
+                } for row in rows
+            ]
 
         return {"device_tokens": list_device}
-
     except Exception as e:
-        # Xử lý lỗi nếu có
         return {"error": str(e)}
-
     finally:
-        # Đảm bảo rằng kết nối được đóng
         conn.close()
+
 
 @app.post("/register-token")
 def register_token(device_token: DeviceToken):
     """
     API để nhận và lưu device token
     """
-    # Lấy device_token và device_id từ dữ liệu nhận vào
     device_token_value = device_token.device_token
-    device_id_value = device_token.id
     device_user_id_value = device_token.user_id
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Kiểm tra nếu device_id đã có trong cơ sở dữ liệu
-    cursor.execute('SELECT * FROM device_tokens WHERE user_id = %s', (device_user_id_value,))
-    existing_token = cursor.fetchone()
+    try:
+        cursor.execute('SELECT * FROM device_tokens WHERE user_id = %s', (device_user_id_value,))
+        existing_token = cursor.fetchone()
 
-    if existing_token:
-        # Nếu đã có device_id thì update device token và cập nhật `updated_at`
-        cursor.execute('UPDATE device_tokens SET device_token = %s WHERE user_id = %s RETURNING *',
-                       (device_token_value, device_user_id_value))
-        updated_token = cursor.fetchone()
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return {
-            'message': 'Device token updated successfully',
-            'data': {'id': updated_token[1], 'device_token': updated_token[2]}
-        }
-    else:
-        # Nếu không có device_id (thêm mới)
         current_time = datetime.now()
 
-        cursor.execute('INSERT INTO device_tokens (device_token,user_id, created_at, updated_at) VALUES (%s,%s, %s, %s) RETURNING *',
-                    (device_token_value,device_user_id_value, current_time, current_time))
+        if existing_token:
+            cursor.execute('''
+                UPDATE device_tokens
+                SET device_token = %s, updated_at = %s
+                WHERE user_id = %s
+                RETURNING id, user_id, device_token, created_at, updated_at
+            ''', (device_token_value, current_time, device_user_id_value))
 
-        new_token = cursor.fetchone()
-        conn.commit()
+            updated_token = cursor.fetchone()
+            conn.commit()
+
+            return {
+                'message': 'Device token updated successfully',
+                'data': {
+                    'id': updated_token[0],
+                    'user_id': updated_token[1],
+                    'device_token': updated_token[2],
+                    'created_at': updated_token[3].isoformat(),
+                    'updated_at': updated_token[4].isoformat()
+                }
+            }
+        else:
+            cursor.execute('''
+                INSERT INTO device_tokens (device_token, user_id, created_at, updated_at)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id, user_id, device_token, created_at, updated_at
+            ''', (device_token_value, device_user_id_value, current_time, current_time))
+
+            new_token = cursor.fetchone()
+            conn.commit()
+
+            return {
+                'message': 'Device token registered successfully',
+                'data': {
+                    'id': new_token[0],
+                    'user_id': new_token[1],
+                    'device_token': new_token[2],
+                    'created_at': new_token[3].isoformat(),
+                    'updated_at': new_token[4].isoformat()
+                }
+            }
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    finally:
         cursor.close()
         conn.close()
-
-        return {
-            'message': 'Device token registered successfully',
-            'data': {'id': new_token[1], 'device_token': new_token[2]}
-        }
 # Định nghĩa cấu trúc dữ liệu cho yêu cầu gửi thông báo
 class NotificationRequest(BaseModel):
     device_token: str
@@ -185,7 +208,7 @@ class NotificationRequest(BaseModel):
     message: str
 
 # Đường dẫn đến tệp Service Account JSON
-SERVICE_ACCOUNT_FILE = '//Users/kiethuynhanh/Documents/THACSIDOCUMENT/Water_Quality_Monitoring/api/firebase-adminsdk.json'
+SERVICE_ACCOUNT_FILE = '/app/api/firebase-adminsdk.json'
 SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
 
 def _get_access_token():
