@@ -117,19 +117,6 @@ jobs:
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
             
-            #Config db
-            echo "Config db..."
-            astro dev object import 
-            
-            #Rm Docker Db
-            echo "Remove Db Docker"
-            docker rm water-quality-monitoring_08846d-postgres-1
-            docker rmi postgres:12.6
-           
-            #Start Again
-            echo "Start Again"
-            docker restart water-quality-monitoring_08846d-webserver-1 
-
             echo "Checking if project is running..."
             if ! docker ps | grep -q "airflow"; then
               echo "Airflow container not running. Exiting..."

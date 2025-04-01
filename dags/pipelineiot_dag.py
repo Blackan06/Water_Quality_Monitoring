@@ -4,7 +4,7 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.operators.python import PythonOperator
 from airflow.models.baseoperator import chain
 from include.iot_streaming.kafka_consumer import kafka_consumer_task
-from include.iot_streaming.kafka_producer import kafka_producer_task,get_kafka_producer
+from include.iot_streaming.kafka_producer import kafka_producer_task,check_kafka_producer
 from include.iot_streaming.elasticsearch import check_and_delete_index, fetch_and_save_data_from_api, check_index
 
 # Định nghĩa các default_args cho DAG
@@ -40,9 +40,9 @@ def iot_pipeline_dag():
         provide_context=True,
     )
     #Check Kafka Producer 
-    check_kafka_producer = PythonOperator(
+    check_kafka_Producer = PythonOperator(
         task_id='check_kafka_producer_task',
-        python_callable=get_kafka_producer,
+        python_callable=check_kafka_producer,
         provide_context=True,
     )
     # Task gửi dữ liệu vào Kafka
@@ -92,7 +92,7 @@ def iot_pipeline_dag():
     #     subject='IoT Data Pipeline Failure',
     #     html_content='There was an error in the IoT Data Pipeline.',
     # )
-    chain(connect_Elastic_Task,fetch_index_task,check_kafka_producer,producer_task,consumer_task,run_spark_job)
+    chain(connect_Elastic_Task,fetch_index_task,check_kafka_Producer,producer_task,[consumer_task,run_spark_job])
      
 
 iot_pipeline_dag()

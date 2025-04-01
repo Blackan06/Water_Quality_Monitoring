@@ -19,13 +19,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 kafka_producer_instance = None
 
-def get_kafka_producer(**kwargs):
+def get_kafka_producer():
     global kafka_producer_instance
     if kafka_producer_instance is None:
         kafka_producer_instance = create_kafka_producer()
-        kwargs['ti'].xcom_push(key='status', value='completed')
-        logger.info("DAG completed successfully and is now stopped.")
     return kafka_producer_instance
+
+def check_kafka_producer(**kwargs):
+    global kafka_producer_instance
+    if kafka_producer_instance is None:
+        kafka_producer_instance = create_kafka_producer()
+        # Chỉ push thông báo trạng thái đơn giản vào XCom, không phải đối tượng KafkaProducer
+        kwargs['ti'].xcom_push(key='status', value='Kafka producer created successfully')
+        logger.info("DAG completed successfully and is now stopped.")
+    # Trả về một thông báo thay vì đối tượng KafkaProducer
+    return "Kafka producer created"
 
 def create_kafka_producer():
     """Tạo KafkaProducer với cấu hình tùy chỉnh"""

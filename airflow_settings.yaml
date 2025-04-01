@@ -7,13 +7,13 @@
 
 airflow:
   connections:
-    - conn_id: postgres_connection
-      conn_type: Postgres
-      conn_host: 149.28.145.56
-      conn_schema: airflow
-      conn_login: postgres
-      conn_password: postgres
-      conn_port: 5432
+    - conn_id: 
+      conn_type: 
+      conn_host: 
+      conn_schema: 
+      conn_login: 
+      conn_password: 
+      conn_port: 
       conn_extra:
         example_extra_field: example-value
   pools:
