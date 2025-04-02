@@ -1,4 +1,3 @@
-duplicate_volumes: "false"
 postgres:
     port: "5434"
 project:

@@ -96,7 +96,7 @@ jobs:
             docker stop dm_api || true  # Stop container if running
             docker stop iot_stream || true  # Stop container if running
             docker rm dm_api || true    # Remove container
-            docker rm iot_streamd || true    # Remove container
+            docker rm iot_stream || true    # Remove container
 
             # Run the new container from the pulled image
             echo "Running the Docker container..."
