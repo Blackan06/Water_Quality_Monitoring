@@ -29,6 +29,14 @@ jobs:
           tags: ${{ secrets.DOCKER_USER }}/dm_api:latest
           no-cache: true
           file: ./api/Dockerfile 
+      - name: Build and push Docker image Spark File
+        uses: docker/build-push-action@v3
+        with:
+          context: .  
+          push: true
+          tags: ${{ secrets.DOCKER_USER }}/iot_stream:latest
+          no-cache: true
+          file: ./spark/Dockerfile
       
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
@@ -82,16 +90,18 @@ jobs:
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login  -u ${{ secrets.DOCKER_USER }} --password-stdin
             echo "Pulling Docker image from Docker registry..."
             docker pull ${{ secrets.DOCKER_USER }}/dm_api:latest
-
+            docker pull ${{ secrets.DOCKER_USER }}/iot_stream:latest 
             # Stop and remove any existing containers before running a new one
             echo "Stopping and removing existing container..."
             docker stop dm_api || true  # Stop container if running
+            docker stop iot_stream || true  # Stop container if running
             docker rm dm_api || true    # Remove container
+            docker rm iot_streamd || true    # Remove container
 
             # Run the new container from the pulled image
             echo "Running the Docker container..."
             docker run -d --name dm_api -p 8018:8018 --restart=always ${{ secrets.DOCKER_USER }}/dm_api:latest
-
+            
             # Check if the container is running
             if ! docker ps | grep -q "dm_api"; then
               echo "dm_api container not running. Exiting..."
