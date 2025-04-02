@@ -70,6 +70,7 @@ def iot_pipeline_dag():
         mount_tmp_dir=False,
         container_name='run_spark_job_container',
         docker_url='tcp://docker-proxy:2375',
+        network_mode='container:kafka',
         environment={
             'SPARK_APPLICATION_ARGS': '{{ ti.xcom_pull(task_ids="kafka_consumer_task") }}',
             'SHARED_VOLUME_PATH': '/shared_volume',

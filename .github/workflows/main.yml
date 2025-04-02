@@ -21,7 +21,7 @@ jobs:
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
 
-      - name: Build and push Docker image
+      - name: Build and push Docker image DM API
         uses: docker/build-push-action@v3
         with:
           context: .  
@@ -29,7 +29,7 @@ jobs:
           tags: ${{ secrets.DOCKER_USER }}/dm_api:latest
           no-cache: true
           file: ./api/Dockerfile 
-
+      
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
         with:
@@ -116,7 +116,7 @@ jobs:
             # Khởi động lại Astro Dev
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
-            
+            docker build -t airflow/iot_stream -f spark/Dockerfile .
             echo "Checking if project is running..."
             if ! docker ps | grep -q "airflow"; then
               echo "Airflow container not running. Exiting..."

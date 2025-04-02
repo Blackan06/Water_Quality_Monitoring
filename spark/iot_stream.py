@@ -3,6 +3,9 @@ from pyspark.sql.functions import col, from_json, expr, when
 from pyspark.sql.types import StructType, StructField, FloatType, TimestampType
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.regression import LinearRegression
+from pyspark.ml import Pipeline
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import RegressionEvaluator
 
 def get_spark_session():
     """
@@ -27,95 +30,82 @@ def add_uuid(df):
     """
     return df.withColumn("id", expr("uuid()"))
 
+def build_pipeline():
+    """
+    Xây dựng một Pipeline gồm VectorAssembler và LinearRegression.
+    """
+    assembler = VectorAssembler(inputCols=["temperature", "ph_value"], outputCol="features")
+    lr = LinearRegression(labelCol="WQI", featuresCol="features")
+    
+    # Tạo pipeline
+    pipeline = Pipeline(stages=[assembler, lr])
+    return pipeline
+
+def cross_validate_model(training_data, pipeline):
+    """
+    Sử dụng CrossValidator để tối ưu mô hình.
+    """
+    paramGrid = ParamGridBuilder() \
+        .addGrid(lr.regParam, [0.1, 0.01]) \
+        .addGrid(lr.maxIter, [5, 10]) \
+        .build()
+
+    evaluator = RegressionEvaluator(labelCol="WQI", predictionCol="prediction", metricName="rmse")
+    
+    crossval = CrossValidator(estimator=pipeline,
+                              estimatorParamMaps=paramGrid,
+                              evaluator=evaluator,
+                              numFolds=3)  # Chạy 3 lần cross-validation
+    
+    cv_model = crossval.fit(training_data)
+    return cv_model
+
 def train_model(batch_df):
     """
-    Training mô hình Linear Regression trên dữ liệu batch.
-    - Sử dụng cột "temperature" làm feature và "ph_value" làm label.
-    Trả về mô hình đã training.
+    Huấn luyện mô hình Linear Regression và sử dụng CrossValidation.
     """
     if batch_df.rdd.isEmpty():
         print("Batch rỗng, bỏ qua training.")
         return None
-
-    # Lọc các bản ghi có dữ liệu hợp lệ
-    training_df = batch_df.filter(col("temperature").isNotNull() & col("ph_value").isNotNull())
+    batch_df.show(5, truncate=False)
+    # Tiền xử lý dữ liệu
+    training_df = batch_df.filter(col("temperature").isNotNull() & col("ph_value").isNotNull() & col("WQI").isNotNull())
     if training_df.rdd.isEmpty():
         print("Không có dữ liệu hợp lệ để training trong batch này.")
         return None
 
-    # Phân chia lại partition cho phù hợp
-    training_df = training_df.repartition(4)
-
-    # Chuẩn bị dữ liệu training với VectorAssembler
-    assembler = VectorAssembler(inputCols=["temperature"], outputCol="features")
-    training_data = assembler.transform(training_df).select("features", col("ph_value").alias("label"))
+    # Xây dựng pipeline và thực hiện cross-validation
+    pipeline = build_pipeline()
+    cv_model = cross_validate_model(training_df, pipeline)
     
-    # Nếu cần cache, có thể cache dữ liệu batch này (lưu ý: đây là batch DataFrame, không phải streaming DataFrame)
-    training_data.cache()
+    print(f"Training completed with best model.")
+    return cv_model.bestModel  # Trả về mô hình tốt nhất sau khi cross-validation
 
-    # Khởi tạo và training mô hình Linear Regression
-    lr = LinearRegression(maxIter=10, regParam=0.3, elasticNetParam=0.8)
-    lr_model = lr.fit(training_data)
-
-    # Lấy ra các chỉ số của mô hình training
-    training_summary = lr_model.summary
-    print(f"Training batch completed: RMSE = {training_summary.rootMeanSquaredError}, R2 = {training_summary.r2}")
-
-    training_data.unpersist()
-    return lr_model
-
-def forecast_model(lr_model, df):
+def forecast_model(model, df):
     """
     Sử dụng mô hình đã training để dự báo trên DataFrame đầu vào.
-    Dữ liệu đầu vào cần có cột "temperature". Hàm này sẽ thêm cột "prediction".
+    Dữ liệu đầu vào cần có cột "temperature" và "ph_value".
     """
-    if lr_model is None:
+    if model is None:
         print("Không có mô hình, bỏ qua dự báo.")
         return
 
-    # Chuẩn bị cột features từ cột "temperature" cho dự báo
-    assembler = VectorAssembler(inputCols=["temperature"], outputCol="features")
+    assembler = VectorAssembler(inputCols=["temperature", "ph_value"], outputCol="features")
     forecast_data = assembler.transform(df)
-    predictions = lr_model.transform(forecast_data)
-    
-    # In một vài kết quả dự báo
-    predictions.select("temperature", "ph_value", "prediction").show(5, truncate=False)
+    predictions = model.transform(forecast_data)
+    predictions.select("temperature", "ph_value", "WQI", "prediction").show(5, truncate=False)
 
-def process_batch(batch_df, batch_id):
+def process_batch_with_session(spark):
     """
-    Hàm xử lý mỗi micro-batch:
-    - Ghi dữ liệu vào Elasticsearch.
-    - Training mô hình trên batch dữ liệu.
-    - Sử dụng mô hình đã training để dự báo trên batch dữ liệu.
+    Trả về hàm process_batch sử dụng biến spark từ ngoài để tạo broadcast variable.
     """
-    print(f"Processing batch id: {batch_id}")
-
-    # Ví dụ sử dụng broadcast variable để truyền ngưỡng pH (nếu cần)
-    ph_threshold_lookup = {"ph_threshold": 7.0}
-    broadcast_threshold = batch_df.sparkSession.sparkContext.broadcast(ph_threshold_lookup)
-    batch_df = batch_df.withColumn(
-        "ph_ok",
-        when(col("ph_value") >= broadcast_threshold.value["ph_threshold"], True).otherwise(False)
-    )
-
-    # Ghi dữ liệu vào Elasticsearch với domain HTTPS
-    batch_df.write.format("org.elasticsearch.spark.sql") \
-        .option("es.resource", "iot-sensors/data") \
-        .option("es.nodes", "elasticsearch.anhkiet.xyz") \
-        .option("es.port", "443") \
-        .option("es.net.ssl", "true") \
-        .option("es.nodes.wan.only", "true") \
-        .option("es.net.http.auth.user", "elastic") \
-        .option("es.net.http.auth.pass", "elasticpassword") \
-        .option("es.mapping.id", "id") \
-        .mode("append") \
-        .save()
-
-    # Training mô hình trên batch dữ liệu hiện tại
-    lr_model = train_model(batch_df)
-    
-    # Sau khi training xong, sử dụng mô hình để dự báo trên dữ liệu của batch này
-    forecast_model(lr_model, batch_df)
+    def process_batch(batch_df, batch_id):
+        print(f"Processing batch id: {batch_id}")
+                
+        # Huấn luyện mô hình và dự báo
+        model = train_model(batch_df)
+        forecast_model(model, batch_df)
+    return process_batch
 
 def run_spark_job(**kwargs):
     """
@@ -123,19 +113,18 @@ def run_spark_job(**kwargs):
     - Đọc dữ liệu từ Kafka.
     - Parse dữ liệu JSON theo schema.
     - Thêm cột id.
-    - Sử dụng foreachBatch để xử lý mỗi micro-batch: ghi vào ES, training và dự báo.
-    - Sau khi job hoàn thành, thông báo cho Airflow.
+    - Sử dụng foreachBatch với hàm process_batch đã được gắn spark session.
     """
     ti = kwargs.get('ti', None)
     data = ti.xcom_pull(task_ids='kafka_consumer_task', key='kafka_data') if ti else None
     print(f"Running Spark job with data: {data}")
 
     spark = get_spark_session()
-
     schema = StructType([
         StructField("measurement_time", TimestampType(), True),
         StructField("ph_value", FloatType(), True),
         StructField("temperature", FloatType(), True),
+        StructField("WQI", FloatType(), True)  # Thêm cột WQI cho chất lượng nước
     ])
 
     kafka_df = spark.readStream \
@@ -148,13 +137,11 @@ def run_spark_job(**kwargs):
     iot_df = kafka_df.selectExpr("CAST(value AS STRING) as value")
     json_df = iot_df.select(from_json(col("value"), schema).alias("data")).select("data.*")
     json_df = add_uuid(json_df)
-    # Lưu ý: Không gọi cache() trên streaming DataFrame
-    # json_df.cache()  <- Đã bị loại bỏ để tránh lỗi AnalysisException
 
     query = json_df.writeStream \
         .trigger(processingTime='30 seconds') \
         .outputMode("append") \
-        .foreachBatch(process_batch) \
+        .foreachBatch(process_batch_with_session(spark)) \
         .option("checkpointLocation", "/tmp/spark/checkpoint") \
         .start()
 
