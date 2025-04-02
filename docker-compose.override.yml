@@ -1,6 +1,8 @@
 
 services:
   webserver:
+    ports:
+    - "8089:8080"
     networks:
       - bigdata-network
   scheduler:
