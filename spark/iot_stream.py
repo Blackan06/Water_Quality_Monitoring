@@ -6,6 +6,7 @@ from pyspark.ml.regression import LinearRegression
 from pyspark.ml import Pipeline
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.sql import functions as F
 
 def get_spark_session():
     """
@@ -34,14 +35,14 @@ def build_pipeline():
     """
     Xây dựng một Pipeline gồm VectorAssembler và LinearRegression.
     """
-    assembler = VectorAssembler(inputCols=["temperature", "ph_value"], outputCol="features")
-    lr = LinearRegression(labelCol="WQI", featuresCol="features")
+    assembler = VectorAssembler(inputCols=["temperature", "ph"], outputCol="features")
+    lr = LinearRegression(labelCol="wqi", featuresCol="features")
     
     # Tạo pipeline
     pipeline = Pipeline(stages=[assembler, lr])
-    return pipeline
+    return pipeline, lr
 
-def cross_validate_model(training_data, pipeline):
+def cross_validate_model(training_data, pipeline , lr):
     """
     Sử dụng CrossValidator để tối ưu mô hình.
     """
@@ -50,7 +51,7 @@ def cross_validate_model(training_data, pipeline):
         .addGrid(lr.maxIter, [5, 10]) \
         .build()
 
-    evaluator = RegressionEvaluator(labelCol="WQI", predictionCol="prediction", metricName="rmse")
+    evaluator = RegressionEvaluator(labelCol="wqi", predictionCol="prediction", metricName="rmse")
     
     crossval = CrossValidator(estimator=pipeline,
                               estimatorParamMaps=paramGrid,
@@ -59,7 +60,25 @@ def cross_validate_model(training_data, pipeline):
     
     cv_model = crossval.fit(training_data)
     return cv_model
+def calculate_wqi(df):
+    """
+    Hàm tính Water Quality Index (WQI) dựa trên các giá trị pH và Temperature.
+    Công thức tính WQI có thể thay đổi tùy theo yêu cầu cụ thể.
+    """
 
+    # Công thức giả định: WQI tính từ pH và Temperature
+    # Giả sử pH tối ưu là trong phạm vi [6.5, 8.5] và Temperature tối ưu là trong phạm vi [20, 30]
+
+    # Tính toán WQI dựa trên pH (một ví dụ cơ bản)
+    pH_wqi = F.when((df['ph'] >= 6.5) & (df['ph'] <= 8.5), 100).otherwise(0)
+
+    # Tính toán WQI dựa trên Temperature (một ví dụ cơ bản)
+    temp_wqi = F.when((df['temperature'] >= 20) & (df['temperature'] <= 30), 100).otherwise(0)
+
+    # Kết hợp các yếu tố để tính WQI tổng thể (có thể điều chỉnh tùy theo yêu cầu)
+    wqi = pH_wqi * 0.6 + temp_wqi * 0.4  # Giả sử pH có trọng số 60% và Temperature có trọng số 40%
+
+    return df.withColumn("wqi", wqi)
 def train_model(batch_df):
     """
     Huấn luyện mô hình Linear Regression và sử dụng CrossValidation.
@@ -68,18 +87,19 @@ def train_model(batch_df):
         print("Batch rỗng, bỏ qua training.")
         return None
     batch_df.show(5, truncate=False)
+    
     # Tiền xử lý dữ liệu
-    training_df = batch_df.filter(col("temperature").isNotNull() & col("ph_value").isNotNull() & col("WQI").isNotNull())
+    training_df = batch_df.filter(col("temperature").isNotNull() & col("ph").isNotNull() & col("wqi").isNotNull())
     if training_df.rdd.isEmpty():
         print("Không có dữ liệu hợp lệ để training trong batch này.")
         return None
 
     # Xây dựng pipeline và thực hiện cross-validation
-    pipeline = build_pipeline()
-    cv_model = cross_validate_model(training_df, pipeline)
+    pipeline, lr = build_pipeline()
+    cv_model = cross_validate_model(training_df, pipeline, lr)
     
     print(f"Training completed with best model.")
-    return cv_model.bestModel  # Trả về mô hình tốt nhất sau khi cross-validation
+    return cv_model.bestModel  
 
 def forecast_model(model, df):
     """
@@ -90,10 +110,16 @@ def forecast_model(model, df):
         print("Không có mô hình, bỏ qua dự báo.")
         return
 
-    assembler = VectorAssembler(inputCols=["temperature", "ph_value"], outputCol="features")
-    forecast_data = assembler.transform(df)
-    predictions = model.transform(forecast_data)
-    predictions.select("temperature", "ph_value", "WQI", "prediction").show(5, truncate=False)
+    # Đảm bảo rằng cột "features" không tồn tại trong DataFrame trước khi sử dụng VectorAssembler
+    if "features" in df.columns:
+        df = df.drop("features")  # Loại bỏ cột "features" nếu đã tồn tại
+
+    
+    # Dự báo
+    predictions = model.transform(df)
+    predictions.select("temperature", "ph", "wqi", "prediction").show(5, truncate=False)
+
+
 
 def process_batch_with_session(spark):
     """
@@ -101,10 +127,11 @@ def process_batch_with_session(spark):
     """
     def process_batch(batch_df, batch_id):
         print(f"Processing batch id: {batch_id}")
-                
+        batch_df_with_wqi = calculate_wqi(batch_df)
+         
         # Huấn luyện mô hình và dự báo
-        model = train_model(batch_df)
-        forecast_model(model, batch_df)
+        model = train_model(batch_df_with_wqi)
+        forecast_model(model, batch_df_with_wqi)
     return process_batch
 
 def run_spark_job(**kwargs):
@@ -122,9 +149,9 @@ def run_spark_job(**kwargs):
     spark = get_spark_session()
     schema = StructType([
         StructField("measurement_time", TimestampType(), True),
-        StructField("ph_value", FloatType(), True),
+        StructField("ph", FloatType(), True),
         StructField("temperature", FloatType(), True),
-        StructField("WQI", FloatType(), True)  # Thêm cột WQI cho chất lượng nước
+        StructField("wqi", FloatType(), True)  
     ])
 
     kafka_df = spark.readStream \
