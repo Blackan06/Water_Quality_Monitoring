@@ -125,7 +125,7 @@ jobs:
 
             # Khởi động lại Astro Dev
             echo "Starting Astro Dev with Docker (Astronomer)..."
-            astro dev start  # Automatically builds and runs Docker containers for Airflow and your Astro project
+            astro dev start  
             echo "Checking if project is running..."
             if ! docker ps | grep -q "airflow"; then
               echo "Airflow container not running. Exiting..."
