@@ -100,8 +100,6 @@ services:
     command: "TCP4-LISTEN:2375,fork,reuseaddr UNIX-CONNECT:/var/run/docker.sock"
     ports:
       - "2375:2375"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - bigdata-network
   
