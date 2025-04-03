@@ -77,22 +77,7 @@ def iot_pipeline_dag():
         },
         do_xcom_push=True,
     )
-
-    # Task gửi email thông báo khi pipeline hoàn thành
-    # send_success_email = EmailOperator(
-    #     task_id='send_success_email',
-    #     to='huynhanhkiet2222@gmail.com',
-    #     subject='IoT Data Pipeline Success',
-    #     html_content='The IoT Data Pipeline has completed successfully.',
-    # )
-
-    # # Task gửi thông báo nếu có lỗi
-    # send_failure_email = EmailOperator(
-    #     task_id='send_failure_email',
-    #     to='huynhanhkiet2222@gmail.com',
-    #     subject='IoT Data Pipeline Failure',
-    #     html_content='There was an error in the IoT Data Pipeline.',
-    # )
+  
     chain(connect_Elastic_Task,fetch_index_task,check_kafka_Producer,producer_task,[consumer_task,run_spark_job])
      
 

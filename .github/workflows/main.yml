@@ -15,29 +15,7 @@ jobs:
         with:
           fetch-depth: 2
           clean: false
-      
-    
-
-      - name: Log in to Docker Hub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
-
-      - name: Build and push Docker image DM API
-        uses: docker/build-push-action@v3
-        with:
-          context: .  
-          push: true
-          tags: ${{ secrets.DOCKER_USER }}/dm_api:latest
-          no-cache: true
-          file: ./api/Dockerfile 
-      - name: Build and push Docker image Spark File
-        uses: docker/build-push-action@v3
-        with:
-          context: .  
-          push: true
-          tags: ${{ secrets.DOCKER_USER }}/iot_stream:latest
-          no-cache: true
-          file: ./spark/Dockerfile
-      
+     
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
         with:
@@ -82,33 +60,15 @@ jobs:
 
             # (Tùy chọn) Xóa tất cả các image (force) - lặp lại nếu cần
             docker rmi -f $(docker images -q)
-                        
-
-
-            # Log in to Docker container registry (e.g., Docker Hub or a private registry)
-            echo "Logging in to Docker registry..."
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login  -u ${{ secrets.DOCKER_USER }} --password-stdin
-            echo "Pulling Docker image from Docker registry..."
-            docker pull ${{ secrets.DOCKER_USER }}/dm_api:latest
-            docker pull ${{ secrets.DOCKER_USER }}/iot_stream:latest 
-            # Stop and remove any existing containers before running a new one
-            echo "Stopping and removing existing container..."
-            docker stop dm_api || true  # Stop container if running
-            docker stop iot_stream || true  # Stop container if running
-            docker rm dm_api || true    # Remove container
-            docker rm iot_stream || true    # Remove container
-
+                  
             # Run the new container from the pulled image
             echo "Running the Docker container..."
             docker run -d --name dm_api -p 8018:8018 --restart=always ${{ secrets.DOCKER_USER }}/dm_api:latest
             
-            # Check if the container is running
-            if ! docker ps | grep -q "dm_api"; then
-              echo "dm_api container not running. Exiting..."
-              exit 1
-            fi
-
+            docker build -t airflow/iot_stream -f spark/Dockerfile . --no-cache 
             
+            docker run -d --restart always -p 8018:8018 airflow/iot_stream
+
             # Prune unused Docker objects (images, containers, volumes, etc.)
             echo "Cleaning up unused Docker resources..."
             docker system prune -f  # Force prune to clean up unused images, containers, and volumes            
@@ -126,6 +86,10 @@ jobs:
             # Khởi động lại Astro Dev
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start  
+            #Run db init 
+            astro dev run db init
+            #Run web server
+            astro dev run webserver
             echo "Checking if project is running..."
             if ! docker ps | grep -q "airflow"; then
               echo "Airflow container not running. Exiting..."
