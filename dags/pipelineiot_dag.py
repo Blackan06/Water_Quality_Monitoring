@@ -62,7 +62,7 @@ def iot_pipeline_dag():
     # Task chạy Spark job
     run_spark_job = DockerOperator(
         task_id='run_spark_job',
-        image='kiet020898/iot_stream',
+        image='airflow/iot_stream',
         api_version='auto',
         auto_remove=True,
         tty=True,

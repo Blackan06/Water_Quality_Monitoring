@@ -19,10 +19,10 @@ app = FastAPI()
 # Khai báo cấu hình PostgreSQL
 DB_CONFIG = {
     'dbname': 'wqi_project',
-    'user': 'postgres',
-    'password': 'postgres',
+    'user': 'root',
+    'password': 'root1234',
     'host': '149.28.145.56',
-    'port': '5432'
+    'port': '3306'
 }
 
 # Cấu trúc để lưu trữ token của thiết bị
