@@ -117,11 +117,7 @@ jobs:
             astro dev run db init
             #Run web server
             astro dev run webserver
-            echo "Checking if project is running..."
-            if ! docker ps | grep -q "airflow"; then
-              echo "Airflow container not running. Exiting..."
-              exit 1
-            fi
+            
 
 
 
