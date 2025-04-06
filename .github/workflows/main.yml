@@ -117,7 +117,8 @@ jobs:
             astro dev run db init
             #Run web server
             astro dev run webserver
-            
+            echo "Deployment succeeded!"
+            exit 0
 
 
 
