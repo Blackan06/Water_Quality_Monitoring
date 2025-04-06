@@ -12,9 +12,17 @@ from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, messaging
 from passlib.context import CryptContext
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],    # Cho phép tất cả các domain
+    allow_credentials=True, # Nếu cần gửi kèm credentials (cookie, auth headers,...)
+    allow_methods=["*"],    # Cho phép tất cả các phương thức (GET, POST, PUT, DELETE, v.v.)
+    allow_headers=["*"],    # Cho phép tất cả các header
+)
 # Khởi tạo pwd_context cho việc mã hóa mật khẩu
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
