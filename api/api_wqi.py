@@ -1,5 +1,8 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
+from datetime import datetime, timedelta
 import pyodbc
 import requests
 import google.auth
@@ -8,23 +11,30 @@ from google.oauth2 import service_account
 import json
 from typing import Optional
 import uuid
-from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, messaging
 from passlib.context import CryptContext
-from fastapi.middleware.cors import CORSMiddleware
+import jwt  # Cần cài đặt thư viện PyJWT: pip install PyJWT
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],    # Cho phép tất cả các domain
-    allow_credentials=True, # Nếu cần gửi kèm credentials (cookie, auth headers,...)
-    allow_methods=["*"],    # Cho phép tất cả các phương thức (GET, POST, PUT, DELETE, v.v.)
-    allow_headers=["*"],    # Cho phép tất cả các header
+    allow_origins=["*"],    
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],   
 )
+
 # Khởi tạo pwd_context cho việc mã hóa mật khẩu
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Cấu hình JWT
+SECRET_KEY = "your_secret_key"  # Thay đổi bằng secret phù hợp với môi trường của bạn
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 DB_CONFIG = {
     'server': 'SQL9001.site4now.net',
@@ -44,7 +54,6 @@ def get_db_connection():
     conn = pyodbc.connect(conn_str)
     return conn
 
-# Cấu trúc để lưu trữ token của thiết bị
 class DeviceToken(BaseModel):
     device_token: str
     user_id: int
@@ -53,10 +62,26 @@ class User(BaseModel):
     username: str
     password: str
 
-# Cấu trúc trả về khi đăng ký người dùng
 class UserOut(BaseModel):
     username: str
     id: int
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """
+    Tạo JWT access token với dữ liệu người dùng và thời gian hết hạn
+    """
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 @app.post("/register")
 def register_user(user: User):
@@ -74,9 +99,11 @@ def register_user(user: User):
             raise HTTPException(status_code=400, detail="Username already exists")
 
         # Sử dụng OUTPUT để trả về id và username sau khi INSERT
+        # Lưu ý: Nên mã hóa password trước khi lưu
+        hashed_password = pwd_context.hash(user.password)
         cursor.execute(
             "INSERT INTO accounts (username, password) OUTPUT inserted.id, inserted.username VALUES (?, ?)",
-            (user.username, user.password)
+            (user.username, hashed_password)
         )
         new_user = cursor.fetchone()
         conn.commit()
@@ -88,10 +115,10 @@ def register_user(user: User):
         cursor.close()
         conn.close()
 
-@app.post("/login")
+@app.post("/login", response_model=Token)
 def login_user(user: User):
     """
-    API đăng nhập người dùng
+    API đăng nhập người dùng và trả về access token
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -109,7 +136,13 @@ def login_user(user: User):
         if not pwd_context.verify(user.password, stored_password):
             raise HTTPException(status_code=400, detail="Invalid username or password")
 
-        return {"message": "Login successful", "accounts": {"username": existing_user[1], "id": existing_user[0]}}
+        # Tạo JWT token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.username, "id": existing_user[0]},
+            expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error occurred: {str(e)}")
     finally:
@@ -206,13 +239,11 @@ def register_token(device_token: DeviceToken):
         cursor.close()
         conn.close()
 
-# Định nghĩa cấu trúc dữ liệu cho yêu cầu gửi thông báo
 class NotificationRequest(BaseModel):
     device_token: str
     title: str
     message: str
 
-# Đường dẫn đến tệp Service Account JSON của Firebase
 SERVICE_ACCOUNT_FILE = '/app/api/firebase-adminsdk.json'
 SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
 
@@ -220,8 +251,8 @@ def _get_access_token():
     """Lấy access token để xác thực gửi thông báo tới Firebase"""
     credentials = service_account.Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-    request = google.auth.transport.requests.Request()
-    credentials.refresh(request)
+    request_obj = google.auth.transport.requests.Request()
+    credentials.refresh(request_obj)
     return credentials.token
 
 @app.post("/send-notification")
@@ -230,17 +261,14 @@ def send_notification(request: NotificationRequest):
     Gửi thông báo đẩy tới thiết bị với device_token
     """
     try:
-        # Lấy access token mới
         access_token = _get_access_token()
         
         device_token_value = request.device_token
         title = request.title
         message = request.message
 
-        # Đường dẫn API của FCM V1
         url = "https://fcm.googleapis.com/v1/projects/watermonitoring-aaf32/messages:send"
 
-        # Dữ liệu thông báo
         message_data = {
             "message": {
                 "token": device_token_value,
