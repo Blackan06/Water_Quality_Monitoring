@@ -15,18 +15,6 @@ jobs:
         with:
           fetch-depth: 2
           clean: false
-
-      - name: Log in to Docker Hub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
-  
-      - name: Build and push Docker image DM API
-        uses: docker/build-push-action@v3
-        with:
-          context: .  
-          push: true
-          tags: ${{ secrets.DOCKER_USER }}/dm_api:latest
-          no-cache: true
-          file: ./api/Dockerfile 
   
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@master
@@ -40,72 +28,13 @@ jobs:
 
             # Pull the latest code from the repository
             git pull origin main
-
-            
-
-            # Check Docker status
-            echo "Checking Docker status..."
-            sudo systemctl status docker || sudo systemctl start docker
-
-            #Remove All Docker
-            echo "Remove All Docker.."
-            # Dừng tất cả các container
-            docker stop $(docker ps -aq)
-
-            # Xóa tất cả các container (force)
-            docker rm $(docker ps -aq) -f
-
-            # Xóa tất cả các image (force)
-            docker rmi $(docker images -aq) -f
-
-            # Xóa tất cả các volume (force)
-            docker volume rm $(docker volume ls -q) -f
-
-            # Xóa tất cả các network không sử dụng
-            docker network prune -f
-
-            # Dọn dẹp hệ thống Docker (containers, images, volumes, networks không sử dụng)
-            docker system prune -a -f
-
-            # Xóa các builder không sử dụng
-            docker builder prune --all --force
-
-            # (Tùy chọn) Xóa tất cả các image (force) - lặp lại nếu cần
-            docker rmi -f $(docker images -q)
-                  
-            # Log in to Docker container registry (e.g., Docker Hub or a private registry)
-            echo "Logging in to Docker registry..."
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login  -u ${{ secrets.DOCKER_USER }} --password-stdin
-            echo "Pulling Docker image from Docker registry..."
-           
-            docker pull ${{ secrets.DOCKER_USER }}/dm_api:latest
-           
-            # Stop and remove any existing containers before running a new one
-            echo "Stopping and removing existing container..."
-            docker stop dm_api || true  # Stop container if running
-            docker rm dm_api || true    # Remove container
-
-            # Run the new container from the pulled image
-            echo "Running the Docker container..."
-           
-            docker run -d --name dm_api -p 8018:8018 --restart=always ${{ secrets.DOCKER_USER }}/dm_api:latest
-           
-            # Check if the container is running
-            if ! docker ps | grep -q "dm_api"; then
-              echo "dm_api container not running. Exiting..."
-              exit 1
-            fi
-
-            # Prune unused Docker objects (images, containers, volumes, etc.)
-            echo "Cleaning up unused Docker resources..."
-            docker system prune -f  # Force prune to clean up unused images, containers, and volumes            
             
             # Kiểm tra nếu Astro Dev đang chạy (có container nào của Astro không?)
             echo "Checking if Astro Dev is running..."
-            if docker ps | grep -q "airflow"; then
+            if docker ps | grep -q "webserver"; then
               echo "Astro Dev is already running. Stopping it..."
               # Dừng Astro Dev nếu đang chạy
-              astro dev stop
+              astro dev kill
             else
               echo "Astro Dev is not running. Starting it..."
             fi
@@ -117,6 +46,10 @@ jobs:
             astro dev run db init
             #Run web server
             astro dev run webserver
+            
+            docker system prune -a -f         
+
+            
             echo "Deployment succeeded!"
             exit 0
 
