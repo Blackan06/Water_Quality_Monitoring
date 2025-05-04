@@ -29,6 +29,16 @@ jobs:
             # Pull the latest code from the repository
             git pull origin main
             
+            # Build water quality processor image
+            echo "Building water quality processor image..."
+            cd spark
+            docker build -t water-quality-processor:latest .
+            cd ..
+            
+            # Build IoT stream image
+            echo "Building IoT stream image..."
+            docker build -t airflow/iot_stream -f spark/spark_stream/Dockerfile .
+            
             # Kiểm tra nếu Astro Dev đang chạy (có container nào của Astro không?)
             echo "Checking if Astro Dev is running..."
             if docker ps | grep -q "webserver"; then
@@ -48,7 +58,6 @@ jobs:
             astro dev run webserver
             
             docker system prune -a -f         
-
             
             echo "Deployment succeeded!"
             exit 0
