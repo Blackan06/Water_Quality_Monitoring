@@ -21,7 +21,7 @@ jobs:
         with:
           username: ${{ secrets.VPS_USERNAME }}
           host: ${{ secrets.VPS_HOST }}
-          key: ${{ secrets.VPS_PRIVATE_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
           script: |
             # Navigate to your project directory
             cd Water_Quality_Monitoring 
