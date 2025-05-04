@@ -59,23 +59,23 @@ services:
       - zookeeper
     networks:
       - bigdata-network
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
-    ports:
-      - "8085:8085"
-    environment:
-      - KAFKA_CLUSTERS_0_NAME=local-cluster
-      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092
-      - KAFKA_UI_AUTH_TYPE=BASIC
-      - AUTH_TYPE=LOGIN_FORM
-      - SPRING_SECURITY_USER_NAME=admin
-      - SPRING_SECURITY_USER_PASSWORD=admin1234
-    depends_on:
-      kafka:
-        condition: service_healthy
-    networks:
-      - bigdata-network
+  # kafka-ui:
+  #   image: provectuslabs/kafka-ui:latest
+  #   container_name: kafka-ui
+  #   ports:
+  #     - "8085:8085"
+  #   environment:
+  #     - KAFKA_CLUSTERS_0_NAME=local-cluster
+  #     - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092
+  #     - KAFKA_UI_AUTH_TYPE=BASIC
+  #     - AUTH_TYPE=LOGIN_FORM
+  #     - SPRING_SECURITY_USER_NAME=admin
+  #     - SPRING_SECURITY_USER_PASSWORD=admin1234
+  #   depends_on:
+  #     kafka:
+  #       condition: service_healthy
+  #   networks:
+  #     - bigdata-network
   # Spark Master and Worker Nodes
   spark-master:
     image: bitnami/spark:latest
