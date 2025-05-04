@@ -4,3 +4,5 @@ pandas
 minio==7.1.14
 apache-airflow-providers-docker==3.7.1
 elasticsearch
+mlflow>=2.3.0
+pyspark>=3.2.0

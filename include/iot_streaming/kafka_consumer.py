@@ -1,34 +1,55 @@
+# kafka_consumer_one_record.py
+
 from kafka import KafkaConsumer
 from json import loads
+import logging
 
-KAFKA_CONSUMER_GROUP_NAME_CONS = "wqi_consumer_group"
-KAFKA_TOPIC_NAME_CONS = "water-quality-data"
-KAFKA_BOOTSTRAP_SERVERS_CONS = 'kafka:9092'
+# ——— Cấu hình ———
+TOPIC    = "water-quality-data"
+BROKERS  = "kafka:9092"
+GROUP_ID = "wqi_consumer_one"
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def kafka_consumer_task(**kwargs):
-    print("Kafka Consumer Application Started ... ")
+    """
+    - Mở kết nối tới Kafka
+    - Đọc một bản ghi đầu tiên (sẽ là của ngày 2025-04-15 nếu producer đã gửi đúng)
+    - Đẩy giá trị đó lên XCom
+    """
+    logger.info("Kafka Consumer (single record) started…")
+
+    consumer = KafkaConsumer(
+        TOPIC,
+        bootstrap_servers=BROKERS,
+        auto_offset_reset='earliest',  # nếu muốn đọc từ đầu
+        enable_auto_commit=False,
+        group_id=GROUP_ID,
+        consumer_timeout_ms=5000,       # timeout 5s nếu không có message
+        value_deserializer=lambda x: loads(x.decode('utf-8'))
+    )
+
+    record = None
     try:
-        consumer = KafkaConsumer(
-            KAFKA_TOPIC_NAME_CONS,
-            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS_CONS,
-            auto_offset_reset='latest',
-            enable_auto_commit=True,
-            group_id=KAFKA_CONSUMER_GROUP_NAME_CONS,
-            value_deserializer=lambda x: loads(x.decode('utf-8'))
-        )
-        
-        # Pull the data that was pushed from the producer task
-        data = kwargs['ti'].xcom_pull(task_ids='kafka_producer_task', key='kafka_data')
-        print(f"Consuming data passed from producer: {data}")
-        
-        # Consume messages continuously and process
-        for message in consumer:
-            print("Key: ", message.key)
-            message_value = message.value
-            print("Message received: ", message_value)
+        for msg in consumer:
+            record = msg.value
+            logger.info(f"Consumed one record: {record}")
+            break
+    except Exception as e:
+        logger.error(f"Error while consuming: {e}")
+    finally:
+        consumer.close()
 
-    except Exception as ex:
-        print("Failed to read kafka message.")
-        print(ex)
+    if record is None:
+        logger.warning("No record consumed within timeout.")
+    else:
+        # Đẩy lên XCom cho downstream task
+        if 'ti' in kwargs:
+            kwargs['ti'].xcom_push(key='consumed_data', value=record)
+        logger.info("Pushed record to XCom under key='consumed_data'")
 
-    print("Kafka Consumer Application Completed.")
+    logger.info("Kafka Consumer (single record) completed.")
+
+if __name__ == "__main__":
+    kafka_consumer_task()

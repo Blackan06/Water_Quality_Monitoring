@@ -5,7 +5,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models.baseoperator import chain
 from include.iot_streaming.kafka_consumer import kafka_consumer_task
 from include.iot_streaming.kafka_producer import kafka_producer_task,check_kafka_producer
-from include.iot_streaming.elasticsearch import check_and_delete_index, fetch_and_save_data_from_api, check_index
+from include.iot_streaming.kafka_producer_streaming import kafka_run
 
 # Định nghĩa các default_args cho DAG
 default_args = {
@@ -26,29 +26,11 @@ default_args = {
 )
 def iot_pipeline_dag():
 
-    # Task kiểm tra Elasticsearch index
-    connect_Elastic_Task = PythonOperator(
-        task_id='elasticsearch_task',
-        python_callable=check_index,
-        provide_context=True,
-    )
-    
-    # Task tải và lưu dữ liệu từ API
-    fetch_index_task = PythonOperator(
-        task_id='data_task',
-        python_callable=fetch_and_save_data_from_api,
-        provide_context=True,
-    )
-    #Check Kafka Producer 
-    check_kafka_Producer = PythonOperator(
-        task_id='check_kafka_producer_task',
-        python_callable=check_kafka_producer,
-        provide_context=True,
-    )
+
     # Task gửi dữ liệu vào Kafka
     producer_task = PythonOperator(
         task_id='kafka_producer_task',
-        python_callable=kafka_producer_task,
+        python_callable=kafka_run,
         provide_context=True,
     )
 
@@ -74,11 +56,14 @@ def iot_pipeline_dag():
         environment={
             'SPARK_APPLICATION_ARGS': '{{ ti.xcom_pull(task_ids="kafka_consumer_task") }}',
             'SHARED_VOLUME_PATH': '/shared_volume',
+            'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
+            'MLFLOW_DEFAULT_ARTIFACT_ROOT': 'file:///mlflow_data/artifacts',
+            'MODEL_NAME': 'water_quality_xgb',
         },
         do_xcom_push=True,
     )
   
-    chain(connect_Elastic_Task,fetch_index_task,check_kafka_Producer,producer_task,[consumer_task,run_spark_job])
+    chain(producer_task,[consumer_task,run_spark_job])
      
 
 iot_pipeline_dag()
