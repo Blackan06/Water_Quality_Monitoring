@@ -49,14 +49,27 @@ jobs:
               echo "Astro Dev is not running. Starting it..."
             fi
 
-            # Khởi động lại Astro Dev
+            # Khởi động Astro Dev
             echo "Starting Astro Dev with Docker (Astronomer)..."
-            astro dev start  
-            #Run db init 
-            astro dev run db init
-            #Run web server
+            astro dev start
+            
+            # Chờ một chút để các container khởi động
+            sleep 30
+            
+            # Kiểm tra và khởi tạo Airflow DB nếu cần
+            echo "Checking Airflow database..."
+            if ! astro dev run webserver airflow db check > /dev/null 2>&1; then
+              echo "Initializing Airflow database..."
+              astro dev run webserver airflow db init
+            else
+              echo "Airflow database already initialized"
+            fi
+            
+            # Khởi động lại webserver để áp dụng các thay đổi
+            echo "Starting Airflow webserver..."
             astro dev run webserver
             
+            # Dọn dẹp Docker
             docker system prune -a -f         
             
             echo "Deployment succeeded!"
