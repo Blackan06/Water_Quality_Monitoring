@@ -66,8 +66,6 @@ jobs:
             fi
             
             # Khởi động lại webserver để áp dụng các thay đổi
-            echo "Starting Airflow webserver..."
-            astro dev run webserver
             
             # Dọn dẹp Docker
             docker system prune -a -f         
