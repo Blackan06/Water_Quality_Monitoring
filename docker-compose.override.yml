@@ -21,19 +21,20 @@ services:
 
   # Kafka Zookeeper
   kafka-ui:
-     image: provectuslabs/kafka-ui:latest
-     container_name: kafka-ui
-     ports:
-       - "8085:8085"
-     environment:
-       - KAFKA_CLUSTERS_0_NAME=local-cluster
-       - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=77.37.44.237:9092
-       - KAFKA_UI_AUTH_TYPE=BASIC
-       - AUTH_TYPE=LOGIN_FORM
-       - SPRING_SECURITY_USER_NAME=admin
-       - SPRING_SECURITY_USER_PASSWORD=admin1234
-     networks:
-       - bigdata-network
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8085:8085"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: 77.37.44.237:9092
+      KAFKA_UI_AUTH_TYPE: BASIC
+      AUTH_ENABLED: "true"                # ← turn on auth module
+      AUTH_TYPE: "LOGIN_FORM"             # ← basic login form
+      SPRING_SECURITY_USER_NAME: admin
+      SPRING_SECURITY_USER_PASSWORD: admin1234
+      SERVER_PORT: "8085"
+    networks:
+      - bigdata-network
   # Spark Master and Worker Nodes
   spark-master:
     image: bitnami/spark:latest
