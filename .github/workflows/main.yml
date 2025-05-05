@@ -68,8 +68,10 @@ jobs:
             # Khởi động lại webserver để áp dụng các thay đổi
             
             # Dọn dẹp Docker
-            docker system prune -a -f         
-            
+            echo "Cleaning up unused Docker containers, volumes, networks..."
+            docker container prune -f
+            docker network prune -f
+            docker volume prune -f            
             echo "Deployment succeeded!"
             exit 0
 
