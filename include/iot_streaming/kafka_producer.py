@@ -8,8 +8,9 @@ from elasticsearch import Elasticsearch, ConnectionError
 import random
 
 # Configuration
-TOPIC_NAME_CONS = "water-quality-data"
-BOOTSTRAP_SERVERS_CONS = 'kafka:9092'
+TOPIC = "water-quality-data"
+BROKERS = "77.37.44.237:9092"  # VPS Kafka address
+GROUP_ID = "wqi_producer"
 ES_HOST = "https://elasticsearch.anhkiet.xyz"
 ES_NAME = 'elastic'
 ES_PASSWORD = '6F2A0Ib+Tqm9Lti9Fpfl'
@@ -39,7 +40,7 @@ def create_kafka_producer():
     """Tạo KafkaProducer với cấu hình tùy chỉnh"""
     try:
         kafka_producer = KafkaProducer(
-            bootstrap_servers=BOOTSTRAP_SERVERS_CONS,
+            bootstrap_servers=BROKERS,
             value_serializer=lambda x: dumps(x).encode('utf-8'),
             acks='all',
             retries=5,
@@ -248,9 +249,9 @@ def kafka_producer_task(**kwargs):
                                 "temperature": temperature
                             }
 
-                            logger.info(f"Sending message to Kafka topic: {TOPIC_NAME_CONS}")
-                            kafka_producer_obj.send(TOPIC_NAME_CONS, event_message)
-                            logger.info(f"Message successfully sent to Kafka topic: {TOPIC_NAME_CONS}")
+                            logger.info(f"Sending message to Kafka topic: {TOPIC}")
+                            kafka_producer_obj.send(TOPIC, event_message)
+                            logger.info(f"Message successfully sent to Kafka topic: {TOPIC}")
 
                     # Lưu dữ liệu mới vào Elasticsearch
                     save_to_elasticsearch(new_data, es_client)

@@ -6,7 +6,7 @@ import logging
 
 # ——— Cấu hình ———
 TOPIC    = "water-quality-data"
-BROKERS  = "kafka:9092"
+BROKERS  = "77.37.44.237:9092"  # VPS Kafka address
 GROUP_ID = "wqi_consumer_one"
 
 logging.basicConfig(level=logging.INFO)
@@ -24,9 +24,9 @@ def kafka_consumer_task(**kwargs):
         TOPIC,
         bootstrap_servers=BROKERS,
         auto_offset_reset='earliest',  # nếu muốn đọc từ đầu
-        enable_auto_commit=False,
+        enable_auto_commit=True,
         group_id=GROUP_ID,
-        consumer_timeout_ms=5000,       # timeout 5s nếu không có message
+        consumer_timeout_ms=10000,       # timeout 10s nếu không có message
         value_deserializer=lambda x: loads(x.decode('utf-8'))
     )
 

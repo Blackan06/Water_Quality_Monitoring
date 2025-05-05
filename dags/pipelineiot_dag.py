@@ -52,13 +52,13 @@ def iot_pipeline_dag():
         mount_tmp_dir=False,
         container_name='run_spark_job_container',
         docker_url='tcp://docker-proxy:2375',
-        network_mode='container:kafka',
         environment={
             'SPARK_APPLICATION_ARGS': '{{ ti.xcom_pull(task_ids="kafka_consumer_task") }}',
             'SHARED_VOLUME_PATH': '/shared_volume',
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
             'MLFLOW_DEFAULT_ARTIFACT_ROOT': 'file:///mlflow_data/artifacts',
             'MODEL_NAME': 'water_quality_xgb',
+            'KAFKA_BOOTSTRAP_SERVERS': '77.37.44.237:9092',  # VPS Kafka address
         },
         do_xcom_push=True,
     )

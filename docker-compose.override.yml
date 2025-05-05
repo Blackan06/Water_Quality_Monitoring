@@ -20,60 +20,20 @@ services:
       - bigdata-network
 
   # Kafka Zookeeper
-  zookeeper:
-    image: bitnami/zookeeper:latest
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      - ZOOKEEPER_TICK_TIME=2000
-      - ZOOKEEPER_INIT_LIMIT=5
-      - ZOOKEEPER_SYNC_LIMIT=2
-      - ALLOW_ANONYMOUS_LOGIN=yes
-    networks:
-      - bigdata-network
-
-  # Kafka Broker
-  kafka:
-    image: bitnami/kafka:3.9
-    container_name: kafka
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "kafka:9092"]
-      interval: 30s
-      retries: 3
-      start_period: 10s
-      timeout: 5s
-    ports:
-      - "9092:9092"
-    environment:
-      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092  
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL=PLAINTEXT
-      - KAFKA_CFG_LISTENER_PORT=9092
-      - KAFKA_CFG_LISTENER_NAME=PLAINTEXT
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092
-      - ALLOW_PLAINTEXT_LISTENER=yes
-    depends_on:
-      - zookeeper
-    networks:
-      - bigdata-network
-  # kafka-ui:
-  #   image: provectuslabs/kafka-ui:latest
-  #   container_name: kafka-ui
-  #   ports:
-  #     - "8085:8085"
-  #   environment:
-  #     - KAFKA_CLUSTERS_0_NAME=local-cluster
-  #     - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092
-  #     - KAFKA_UI_AUTH_TYPE=BASIC
-  #     - AUTH_TYPE=LOGIN_FORM
-  #     - SPRING_SECURITY_USER_NAME=admin
-  #     - SPRING_SECURITY_USER_PASSWORD=admin1234
-  #   depends_on:
-  #     kafka:
-  #       condition: service_healthy
-  #   networks:
-  #     - bigdata-network
+  kafka-ui:
+     image: provectuslabs/kafka-ui:latest
+     container_name: kafka-ui
+     ports:
+       - "8085:8085"
+     environment:
+       - KAFKA_CLUSTERS_0_NAME=local-cluster
+       - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=77.37.44.237:9092
+       - KAFKA_UI_AUTH_TYPE=BASIC
+       - AUTH_TYPE=LOGIN_FORM
+       - SPRING_SECURITY_USER_NAME=admin
+       - SPRING_SECURITY_USER_PASSWORD=admin1234
+     networks:
+       - bigdata-network
   # Spark Master and Worker Nodes
   spark-master:
     image: bitnami/spark:latest

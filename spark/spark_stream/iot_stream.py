@@ -22,12 +22,12 @@ _no_op_launch.typeConverter = lambda x: x
 SparkXGBRegressorModel.launch_tracker_on_driver = _no_op_launch
 
 # ——— Cấu hình ———
-MODEL_PATH = os.getenv('MODEL_PATH', '/opt/bitnami/spark/models/best_xgb_pipeline')
-ES_RESOURCE = os.getenv('ES_RESOURCE', 'water_quality')
-BOOTSTRAP_SERVERS = os.getenv('BOOTSTRAP_SERVERS_CONS', 'kafka:9092')
-TOPIC_NAME = os.getenv('TOPIC_NAME_CONS', 'water-quality-data')
-CHECKPOINT_LOC = os.getenv('CHECKPOINT_LOCATION', '/tmp/spark/checkpoint_predict')
-FORECAST_HORIZON = int(os.getenv('FORECAST_HORIZON', 12))
+MODEL_PATH       = os.getenv('MODEL_PATH', '/opt/bitnami/spark/models/best_xgb_pipeline')
+ES_RESOURCE      = os.getenv('ES_RESOURCE', 'water_quality')
+BOOTSTRAP_SERVERS= os.getenv('BOOTSTRAP_SERVERS_CONS', '77.37.44.237:9092')  # VPS Kafka address
+TOPIC_NAME       = os.getenv('TOPIC_NAME_CONS', 'water-quality-data')
+CHECKPOINT_LOC   = os.getenv('CHECKPOINT_LOCATION', '/tmp/spark/checkpoint_predict')
+FORECAST_HORIZON = int(os.getenv('FORECAST_HORIZON', '12'))  # tháng
 
 # ——— Khởi tạo Spark session ———
 def get_spark_session():
@@ -42,6 +42,10 @@ def get_spark_session():
              .config("spark.driver.memory", "2g")
              .config("spark.executor.memory", "2g")
              .config("spark.jars", ",".join(jars))
+             # Kafka security configs
+             .config("spark.kafka.consumer.group.id", "water_quality_spark_consumer")
+             .config("spark.kafka.socket.connection.setup.timeout.ms", "10000")
+             .config("spark.kafka.socket.connection.setup.max.retries", "3")
              .getOrCreate())
     spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
     return spark
