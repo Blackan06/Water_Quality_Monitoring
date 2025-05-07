@@ -19,6 +19,7 @@ services:
     networks:
       - bigdata-network
 
+
   # Kafka Zookeeper
   kafka-ui:
     image: provectuslabs/kafka-ui:latest

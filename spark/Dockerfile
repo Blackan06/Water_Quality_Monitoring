@@ -29,6 +29,5 @@ RUN mkdir -p /app/models && chmod 777 /app/models
 ENV MLFLOW_TRACKING_URI=http://mlflow:5003
 ENV SPARK_MODE=client
 ENV SPARK_MASTER=spark://spark-master:7077
-
 # 7) Chạy pipeline
 CMD ["python3", "run_pipeline.py"]

@@ -3,6 +3,10 @@ import os
 import math
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+import requests
+import psycopg2
+from psycopg2 import sql
+from openai import OpenAI
 
 from pyspark.sql import SparkSession, functions as F, Row
 from pyspark.sql.functions import col, expr, from_json, lit
@@ -10,6 +14,7 @@ from pyspark.sql.types import StructField, StructType, FloatType, TimestampType,
 from pyspark.sql.window import Window
 from pyspark.ml import PipelineModel
 from xgboost.spark import SparkXGBRegressorModel
+from pyspark.ml.evaluation import RegressionEvaluator
 
 # ——— Thiết lập logging ———
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -28,6 +33,19 @@ BOOTSTRAP_SERVERS= os.getenv('BOOTSTRAP_SERVERS_CONS', '77.37.44.237:9092')  # V
 TOPIC_NAME       = os.getenv('TOPIC_NAME_CONS', 'water-quality-data')
 CHECKPOINT_LOC   = os.getenv('CHECKPOINT_LOCATION', '/tmp/spark/checkpoint_predict')
 FORECAST_HORIZON = int(os.getenv('FORECAST_HORIZON', '12'))  # tháng
+
+# Cấu hình kết nối đến PostgreSQL
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', '149.28.145.56'),
+    'port': os.getenv('DB_PORT', '5432'),
+    'database': os.getenv('DB_NAME', 'wqi_db'),
+    'user': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD', 'postgres1234')
+}
+
+# Cấu hình OpenAI API
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
 
 # ——— Khởi tạo Spark session ———
 def get_spark_session():
@@ -85,203 +103,186 @@ def save_to_elasticsearch(df):
     except Exception as e:
         logger.error(f"Error writing to Elasticsearch: {e}")
 
+def save_monitoring_data_to_postgres(data):
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            host=DB_CONFIG['host'],
+            port=DB_CONFIG['port'],
+            dbname=DB_CONFIG['database'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password']
+        )
+        cur = conn.cursor()
+        insert_query = sql.SQL("""
+            INSERT INTO wqi_monitoring_data (temperature, "do", ph, wqi, wq_date)
+            VALUES (%s, %s, %s, %s, %s)
+        """)
+        cur.execute(insert_query, (
+            data['temperature'],
+            data['do'],
+            data['ph'],
+            data['wqi'],
+            data['wq_date']
+        ))
+        conn.commit()
+        cur.close()
+        logger.info("Saved monitoring data to wqi_monitoring_data.")
+    except Exception as e:
+        logger.error(f"Error saving monitoring data: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def push_notification(account_id, title, message, status):
+    url = "https://dm.anhkiet.xyz/notifications/send-notification"
+    payload = {
+        "account_id": str(account_id),
+        "title": title,
+        "message": message,
+        "status": status
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            logger.info("Push notification sent successfully.")
+        else:
+            logger.error(f"Push notification failed: {response.text}")
+    except Exception as e:
+        logger.error(f"Error sending push notification: {e}")
+
+def analyze_water_quality(wqi, ph, do, temperature):
+    prompt = (
+        "Đây là nước nuôi cá. "
+        f"WQI dự đoán: {wqi}, pH={ph}, DO={do} mg/L, nhiệt độ={temperature}°C. "
+        "Hãy đánh giá khách quan và đề xuất biện pháp, chỉ viết đúng 4 câu, "
+        "mỗi câu kết thúc bằng dấu chấm, đầy đủ nghĩa, không bỏ thiếu chữ, không xuống dòng."
+    )
+    resp = client.chat.completions.create(
+        model="gpt-4.1-nano",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=150,
+        temperature=0.5
+    )
+    text = resp.choices[0].message.content.strip()
+    # Gộp và đảm bảo không có newline
+    text = " ".join(text.splitlines())
+    return f"WQI tháng sau: {wqi}. {text}"
+
 # ——— Batch predictor ———
 def process_batch_predict(batch_df, batch_id):
+    logger.info(f"Processing batch {batch_id} with {batch_df.count()} records.")
     if batch_df.rdd.isEmpty():
         logger.info(f"Batch {batch_id}: Empty batch, skipping processing")
         return
 
     spark = get_spark_session()
 
-    # 1) History WQI + UUID
+    # 1) Tính WQI + UUID và lưu monitoring
     hist = calculate_wqi(batch_df).transform(add_uuid)
+    logger.info(f"Batch {batch_id}: Calculated WQI and added UUID.")
+    for row in hist.collect():
+        save_monitoring_data_to_postgres({
+            'temperature': row['temperature'],
+            'do': row['do'],
+            'ph': row['ph'],
+            'wqi': row['wqi'],
+            'wq_date': str(row['measurement_time'])
+        })
+    logger.info(f"Batch {batch_id}: Saved monitoring data to PostgreSQL.")
 
-    # Check if there are enough rows for window-based features
-    row_count = hist.count()
-    if row_count < 12:
-        logger.warning(f"Batch {batch_id}: Only {row_count} rows, need at least 12 for MA12. Skipping forecasting.")
-        save_to_elasticsearch(hist)  # Save historical data only
-        return
-
-    # 2) Feature engineering on history
-    hist = (hist
-        .withColumn("day_of_year", F.dayofyear("measurement_time"))
-        .withColumn("year_sin", F.sin(F.col("day_of_year") * 2 * math.pi / 365.25))
-        .withColumn("year_cos", F.cos(F.col("day_of_year") * 2 * math.pi / 365.25))
-        .withColumn("time_idx", F.unix_timestamp("measurement_time").cast(DoubleType()))
-    )
-
-    win3 = Window.orderBy("measurement_time").rowsBetween(-2, 0)
-    win6 = Window.orderBy("measurement_time").rowsBetween(-5, 0)
+    # 2) Tính window-features trên toàn bộ history (ví dụ MA3, MA6, MA12, trend, ROC)
+    win3  = Window.orderBy("measurement_time").rowsBetween(-2, 0)
+    win6  = Window.orderBy("measurement_time").rowsBetween(-5, 0)
     win12 = Window.orderBy("measurement_time").rowsBetween(-11, 0)
-    lagw = Window.orderBy("measurement_time")
+    lagw  = Window.orderBy("measurement_time")
 
     hist = (hist
-        .withColumn("MA3", F.avg("wqi").over(win3))
-        .withColumn("MA6", F.avg("wqi").over(win6))
-        .withColumn("MA12", F.avg("wqi").over(win12))
-        .withColumn("trend3", F.col("wqi") - F.col("MA3"))
-        .withColumn("trend6", F.col("wqi") - F.col("MA6"))
+        .withColumn("MA3",    F.avg("wqi").over(win3))
+        .withColumn("MA6",    F.avg("wqi").over(win6))
+        .withColumn("MA12",   F.avg("wqi").over(win12))
+        .withColumn("trend3",  F.col("wqi") - F.col("MA3"))
+        .withColumn("trend6",  F.col("wqi") - F.col("MA6"))
         .withColumn("trend12", F.col("wqi") - F.col("MA12"))
-        .withColumn("ROC3", (F.col("wqi") - F.lag("wqi", 3).over(lagw)) / 3)
-        .withColumn("ROC6", (F.col("wqi") - F.lag("wqi", 6).over(lagw)) / 6)
+        .withColumn("ROC3",   (F.col("wqi") - F.lag("wqi", 3).over(lagw)) / 3)
+        .withColumn("ROC6",   (F.col("wqi") - F.lag("wqi", 6).over(lagw)) / 6)
+        .fillna(0.0, ["MA3","MA6","MA12","trend3","trend6","trend12","ROC3","ROC6"])
     )
+    logger.info(f"Batch {batch_id}: Calculated window features.")
 
-    # Fill null values with 0.0
-    hist = hist.fillna({
-        "MA3": 0.0, "MA6": 0.0, "MA12": 0.0,
-        "trend3": 0.0, "trend6": 0.0, "trend12": 0.0,
-        "ROC3": 0.0, "ROC6": 0.0
-    })
-
-    # Debug: Show hist
-    logger.info(f"Batch {batch_id}: Historical data")
-    hist.show(truncate=False)
-
-    # 3) Get last 12 records for wqi_history and last record for state
-    last_12 = hist.orderBy(F.desc("measurement_time")).limit(12).collect()
-    last = last_12[0]  # Most recent record
-    ts = last['measurement_time'].replace(day=15, hour=0, minute=0, second=0, microsecond=0)  # Set to 15th
+    # 3) Lấy record cuối cùng và các feature vừa tính
+    last = hist.orderBy(F.desc("measurement_time")).first()
+    ts   = last['measurement_time'].replace(day=15, hour=0, minute=0, second=0, microsecond=0)
     state = {
-        'ph': float(last['ph']) if last['ph'] is not None else 0.0,
-        'temperature': float(last['temperature']) if last['temperature'] is not None else 0.0,
-        'do': float(last['do']) if last['do'] is not None else 0.0,
-        'wqi': float(last['wqi']) if last['wqi'] is not None else 0.0,
-        'MA3': float(last['MA3']) if last['MA3'] is not None else 0.0,
-        'MA6': float(last['MA6']) if last['MA6'] is not None else 0.0,
-        'MA12': float(last['MA12']) if last['MA12'] is not None else 0.0,
-        'trend3': float(last['trend3']) if last['trend3'] is not None else 0.0,
-        'trend6': float(last['trend6']) if last['trend6'] is not None else 0.0,
-        'trend12': float(last['trend12']) if last['trend12'] is not None else 0.0,
-        'ROC3': float(last['ROC3']) if last['ROC3'] is not None else 0.0,
-        'ROC6': float(last['ROC6']) if last['ROC6'] is not None else 0.0
+        'ph': float(last['ph']),
+        'temperature': float(last['temperature']),
+        'do': float(last['do']),
+        'wqi': float(last['wqi'])
     }
+    feat = { f: float(last[f]) for f in
+             ["MA3","MA6","MA12","trend3","trend6","trend12","ROC3","ROC6"] }
+    logger.info(f"Batch {batch_id}: Retrieved last record and features.")
 
-    # Initialize wqi_history (chronological order)
-    wqi_history = [float(row['wqi']) for row in reversed(last_12)]
-    if len(wqi_history) < 12:
-        wqi_history = [state['wqi']] * (12 - len(wqi_history)) + wqi_history
+    # 4) Tạo DataFrame chỉ cho tháng tiếp theo, nhồi đúng các giá trị feature
+    next_ts = ts + relativedelta(months=1)
+    next_ts = next_ts.replace(day=15)
 
-    # Compute trends (stronger amplification)
-    last_3 = hist.orderBy(F.desc("measurement_time")).limit(3).select("ph", "temperature", "do", "wqi").collect()
-    ph_trend = (last_3[0]['ph'] - last_3[-1]['ph']) / 3 * 15 if len(last_3) >= 3 else 0.0  # Stronger trend
-    temp_trend = (last_3[0]['temperature'] - last_3[-1]['temperature']) / 3 * 15 if len(last_3) >= 3 else 0.0
-    do_trend = (last_3[0]['do'] - last_3[-1]['do']) / 3 * 15 if len(last_3) >= 3 else 0.0
-    wqi_trend = (last_3[0]['wqi'] - last_3[-1]['wqi']) / 3 * 15 if len(last_3) >= 3 else 0.0
-
-    # Debug: Log initial state and trends
-    logger.info(f"Batch {batch_id}: Initial state = {state}, wqi_history = {wqi_history}")
-    logger.info(f"Batch {batch_id}: Trends - ph: {ph_trend}, temp: {temp_trend}, do: {do_trend}, wqi: {wqi_trend}")
-
-    # 4) Load pipeline model
-    model = PipelineModel.load(MODEL_PATH)
-    logger.info(f"Batch {batch_id}: Pipeline stages: {model.stages}")
-
-   # 5) Iterative forecasting - tập trung vào dự đoán WQI
     input_schema = StructType([
         StructField("measurement_time", TimestampType()),
         StructField("ph", FloatType()),
         StructField("temperature", FloatType()),
         StructField("do", FloatType()),
         StructField("wqi", FloatType()),
-        StructField("MA3", DoubleType()),
-        StructField("MA6", DoubleType()),
-        StructField("MA12", DoubleType()),
-        StructField("trend3", DoubleType()),
-        StructField("trend6", DoubleType()),
-        StructField("trend12", DoubleType()),
-        StructField("ROC3", DoubleType()),
-        StructField("ROC6", DoubleType()),
+        StructField("MA3", DoubleType()),    StructField("MA6", DoubleType()),
+        StructField("MA12", DoubleType()),   StructField("trend3", DoubleType()),
+        StructField("trend6", DoubleType()), StructField("trend12", DoubleType()),
+        StructField("ROC3", DoubleType()),   StructField("ROC6", DoubleType())
     ])
 
-    forecasts = []
-    # Lấy giá trị WQI hiện tại
-    current_wqi = state['wqi']
-    # Tính độ tăng/giảm WQI theo xu hướng gần đây
-    wqi_increment = wqi_trend / 15  # Điều chỉnh độ tăng/giảm theo tháng
+    single = spark.createDataFrame([(
+        next_ts,
+        state['ph'], state['temperature'], state['do'], state['wqi'],
+        feat['MA3'], feat['MA6'], feat['MA12'],
+        feat['trend3'], feat['trend6'], feat['trend12'],
+        feat['ROC3'], feat['ROC6']
+    )], schema=input_schema)
+    logger.info(f"Batch {batch_id}: Created DataFrame for next month prediction.")
 
-    logger.info(f"Batch {batch_id}: Initial WQI = {current_wqi}, WQI monthly increment = {wqi_increment}")
+    # 5) Nếu pipeline có stage seasonal/time_idx thì thêm vào
+    single = (single
+        .withColumn("day_of_year", F.dayofyear("measurement_time"))
+        .withColumn("year_sin",   F.sin(F.col("day_of_year") * 2 * math.pi / 365.25))
+        .withColumn("year_cos",   F.cos(F.col("day_of_year") * 2 * math.pi / 365.25))
+        .withColumn("time_idx",   F.unix_timestamp("measurement_time").cast(DoubleType()))
+    )
+    logger.info(f"Batch {batch_id}: Added seasonal features.")
 
-    for i in range(FORECAST_HORIZON):
-        # Update timestamp (15th of next month)
-        new_ts = ts + relativedelta(months=i + 1)
-        new_ts = new_ts.replace(day=15, hour=0, minute=0, second=0, microsecond=0)
-        logger.info(f"Iteration {i}: Using timestamp {new_ts}, current WQI = {current_wqi}")
-        
-        # Tính toán thành phần mùa (seasonal component) cho WQI
-        month_of_year = new_ts.month
-        # Tăng biên độ dao động theo mùa (season amplitude)
-        seasonal_effect = 10.0 * math.sin(2 * math.pi * (month_of_year / 12))
-        
-        # Giữ nguyên các thông số ph, temperature, do từ lần đọc cuối
-        # Chỉ cập nhật WQI theo xu hướng và yếu tố mùa
-        current_wqi = max(0.0, min(100.0, current_wqi + wqi_increment + seasonal_effect))
-        
-        # Cập nhật trạng thái hiện tại - chỉ cập nhật WQI
-        state['wqi'] = float(current_wqi)
-        
-        # Tạo DataFrame đầu vào cho dự đoán
-        single = spark.createDataFrame([
-            (new_ts, state['ph'], state['temperature'], state['do'], state['wqi'],
-            state['MA3'], state['MA6'], state['MA12'],
-            state['trend3'], state['trend6'], state['trend12'],
-            state['ROC3'], state['ROC6'])
-        ], schema=input_schema)
-        
-        # Tính toán đặc trưng theo mùa
-        single = (single
-            .withColumn("day_of_year", F.dayofyear("measurement_time"))
-            .withColumn("year_sin", F.sin(F.col("day_of_year") * 2 * math.pi / 365.25))
-            .withColumn("year_cos", F.cos(F.col("day_of_year") * 2 * math.pi / 365.25))
-            .withColumn("time_idx", F.unix_timestamp("measurement_time").cast(DoubleType()))
-        )
-        
-        # Debug: Hiển thị trạng thái và lịch sử WQI
-        logger.info(f"Iteration {i}: WQI State = {state['wqi']}, wqi_history = {wqi_history}")
-        
-        # Dự đoán với model
-        pred = model.transform(single).collect()[0]["prediction"]
-        logger.info(f"Iteration {i}: WQI Prediction = {pred}")
-        
-        # Lưu kết quả dự đoán
-        forecasts.append(Row(measurement_time=new_ts, wqi_forecast=float(pred)))
-        
-        # Cập nhật lịch sử WQI và các đặc trưng dựa trên kết quả dự đoán
-        wqi_history.append(float(pred))
-        wqi_history.pop(0)  # Giữ 12 giá trị gần nhất
-        
-        # Cập nhật các đặc trưng MA và trend dựa trên kết quả dự đoán
-        state['MA3'] = sum(wqi_history[-3:]) / 3
-        state['MA6'] = sum(wqi_history[-6:]) / 6
-        state['MA12'] = sum(wqi_history) / len(wqi_history)
-        state['trend3'] = pred - state['MA3']
-        state['trend6'] = pred - state['MA6']
-        state['trend12'] = pred - state['MA12']
-        state['ROC3'] = (pred - wqi_history[-4]) / 3 if len(wqi_history) >= 4 else 0.0
-        state['ROC6'] = (pred - wqi_history[-7]) / 6 if len(wqi_history) >= 7 else 0.0
-        
-        # Cập nhật WQI hiện tại từ kết quả dự đoán để sử dụng cho lần dự đoán tiếp theo
-        current_wqi = float(pred)
-        
-        # Điều chỉnh increment theo xu hướng mới
-        if i > 0 and i % 3 == 0:  # Điều chỉnh lại xu hướng sau mỗi 3 tháng
-            recent_wqis = wqi_history[-3:]
-            if len(recent_wqis) >= 3:
-                new_trend = (recent_wqis[-1] - recent_wqis[0]) / 3
-                wqi_increment = new_trend / 5  # Điều chỉnh độ tăng/giảm theo xu hướng mới
-                logger.info(f"Iteration {i}: Adjusted WQI increment to {wqi_increment} based on recent predictions")
+    # 6) Load model và predict
+    model = PipelineModel.load(MODEL_PATH)
+    pred = model.transform(single).first()["prediction"]
+    logger.info(f"Batch {batch_id}: Forecast next month ({next_ts.date()}): {pred:.2f}")
 
-    # 6) Write out with explicit schema
-    schema_out = StructType([
-        StructField("measurement_time", TimestampType()),
-        StructField("wqi_forecast", DoubleType())
-    ])
-    out = spark.createDataFrame(forecasts, schema=schema_out)
-    out = out.withColumn("measurement_time", F.date_format("measurement_time", "yyyy-MM-dd'T'00:00:00'Z'"))
-    logger.info(f"Batch {batch_id}: Final forecasts")
-    out.show(truncate=False)
+    # 7) Ghi ES và gửi notification
+    out = spark.createDataFrame(
+        [Row(measurement_time=next_ts, wqi_forecast=float(pred))],
+        StructType([
+            StructField("measurement_time", TimestampType()),
+            StructField("wqi_forecast", DoubleType())
+        ])
+    )
     save_to_elasticsearch(out)
-    logger.info(f"Batch {batch_id}: Iterative forecast completed")
+    logger.info(f"Batch {batch_id}: Saved forecast to Elasticsearch.")
+
+    # Gửi thông báo sau khi train xong
+    status = "good" if pred > 50 else "danger"  # Sử dụng giá trị WQI dự đoán
+    analysis = analyze_water_quality(pred, state['ph'], state['do'], state['temperature'])
+    push_notification(
+        account_id=3,
+        title="Kết quả WQI tháng sau",
+        message=analysis,
+        status=status
+        
+    )
 
 # ——— Chạy Structured Streaming ———
 def run_spark_job():

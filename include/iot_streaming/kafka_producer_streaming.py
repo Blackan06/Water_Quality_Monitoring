@@ -9,7 +9,7 @@ import logging
 
 # ——— Cấu hình ———
 TOPIC = "water-quality-data"
-BROKERS = "kafka:9092"
+BROKERS = "77.37.44.237:9092"
 ES_HOST   = "https://elasticsearch.anhkiet.xyz"
 ES_USER   = "elastic"
 ES_PASS   = "6F2A0Ib+Tqm9Lti9Fpfl"

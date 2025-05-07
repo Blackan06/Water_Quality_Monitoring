@@ -42,18 +42,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Sao chép mã nguồn vào container
 COPY spark/spark_stream/iot_stream.py /app/iot_stream.py
 
-# Thiết lập môi trường Spark
-ENV SPARK_HOME=/opt/bitnami/spark
-ENV PATH=$SPARK_HOME/bin:$PATH
-ENV SPARK_JARS_DIR=$SPARK_HOME/jars
-ENV MLFLOW_TRACKING_URI=http://mlflow:5003
-ENV MLFLOW_ARTIFACT_ROOT=file:/app/mlartifacts
-ENV OUTPUT_MODEL_DIR=/app/models
-ENV REGISTERED_MODEL_NAME=water_quality_xgb
-ENV ES_PORT=80
-ENV ES_INDEX=water_quality
-ENV MODEL_PATH=/app/models/best_xgb_pipeline
-# Lệnh để chạy Spark consumer app
+COPY spark/spark_stream/.env /app/.env
 COPY ./spark/spark_stream/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
