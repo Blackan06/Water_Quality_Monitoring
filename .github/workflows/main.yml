@@ -29,6 +29,8 @@ jobs:
             # Pull the latest code from the repository
             git pull origin main
             
+            docker rmi water-quality-processor:latest
+            docker rmi airflow/iot_stream:latest
             # Build water quality processor image
             echo "Building water quality processor image..."
             cd spark
