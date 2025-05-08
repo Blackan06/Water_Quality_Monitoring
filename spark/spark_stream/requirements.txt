@@ -8,3 +8,4 @@ scikit-learn>=1.0.0
 pyarrow>=4.0.0
 requests>=2.25.1
 openai
+load_dotenv
