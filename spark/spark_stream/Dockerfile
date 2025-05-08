@@ -42,7 +42,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Sao chép mã nguồn vào container
 COPY ./spark/spark_stream/iot_stream.py /app/iot_stream.py
 
-COPY ./spark/spark_stream/.env /app/.env
 COPY ./spark/spark_stream/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
