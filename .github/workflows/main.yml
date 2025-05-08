@@ -57,17 +57,6 @@ jobs:
             # Chờ một chút để các container khởi động
             sleep 30
             
-            # Kiểm tra và khởi tạo Airflow DB nếu cần
-            echo "Checking Airflow database..."
-            if ! astro dev run webserver airflow db check > /dev/null 2>&1; then
-              echo "Initializing Airflow database..."
-              astro dev run webserver airflow db init
-            else
-              echo "Airflow database already initialized"
-            fi
-            
-            # Khởi động lại webserver để áp dụng các thay đổi
-            
             # Dọn dẹp Docker
             echo "Cleaning up unused Docker containers, volumes, networks..."
             docker container prune -f
