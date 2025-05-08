@@ -55,7 +55,8 @@ jobs:
             # Khởi động Astro Dev
             echo "Starting Astro Dev with Docker (Astronomer)..."
             astro dev start
-            
+            astro dev object import       
+
             # Chờ một chút để các container khởi động
             sleep 30
             
