@@ -6,6 +6,9 @@ from airflow.models.baseoperator import chain
 from include.iot_streaming.kafka_consumer import kafka_consumer_task
 from include.iot_streaming.kafka_producer import kafka_producer_task,check_kafka_producer
 from include.iot_streaming.kafka_producer_streaming import kafka_run
+from airflow.models import Variable
+
+openai_key = Variable.get("openai_api_key")
 
 # Định nghĩa các default_args cho DAG
 default_args = {
@@ -53,6 +56,7 @@ def iot_pipeline_dag():
         container_name='run_spark_job_container',
         docker_url='tcp://docker-proxy:2375',
         environment={
+            "OPENAI_API_KEY": openai_key,
             'SPARK_APPLICATION_ARGS': '{{ ti.xcom_pull(task_ids="kafka_consumer_task") }}',
             'SHARED_VOLUME_PATH': '/shared_volume',
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003',

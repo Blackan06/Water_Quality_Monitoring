@@ -15,7 +15,7 @@ from pyspark.sql.window import Window
 from pyspark.ml import PipelineModel
 from xgboost.spark import SparkXGBRegressorModel
 from pyspark.ml.evaluation import RegressionEvaluator
-
+ 
 # ——— Thiết lập logging ———
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("iot_stream")
