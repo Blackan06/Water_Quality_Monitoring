@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/525402370996012583/cf7428b3f47e41f8a9b734a1e6050f3b/artifacts
+end_time: 1752143808513
+entry_point_name: ''
+experiment_id: '525402370996012583'
+lifecycle_stage: active
+run_id: cf7428b3f47e41f8a9b734a1e6050f3b
+run_name: capricious-bat-685
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752143808438
+status: 3
+tags: []
+user_id: ''

@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/730096146507059040/586b187f1eb64d658bca45f5a7902924/artifacts
+end_time: 1752050824885
+entry_point_name: ''
+experiment_id: '730096146507059040'
+lifecycle_stage: active
+run_id: 586b187f1eb64d658bca45f5a7902924
+run_name: debonair-asp-795
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752050824814
+status: 3
+tags: []
+user_id: ''

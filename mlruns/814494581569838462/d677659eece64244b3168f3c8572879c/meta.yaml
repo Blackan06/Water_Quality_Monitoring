@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/814494581569838462/d677659eece64244b3168f3c8572879c/artifacts
+end_time: 1752132941798
+entry_point_name: ''
+experiment_id: '814494581569838462'
+lifecycle_stage: active
+run_id: d677659eece64244b3168f3c8572879c
+run_name: dashing-roo-244
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752132941750
+status: 3
+tags: []
+user_id: ''

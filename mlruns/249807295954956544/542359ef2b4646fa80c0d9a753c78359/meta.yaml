@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/249807295954956544/542359ef2b4646fa80c0d9a753c78359/artifacts
+end_time: 1752158788192
+entry_point_name: ''
+experiment_id: '249807295954956544'
+lifecycle_stage: active
+run_id: 542359ef2b4646fa80c0d9a753c78359
+run_name: fearless-ant-523
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752158788105
+status: 3
+tags: []
+user_id: ''

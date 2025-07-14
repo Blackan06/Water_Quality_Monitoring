@@ -61,7 +61,7 @@ def iot_pipeline_dag():
             'SHARED_VOLUME_PATH': '/shared_volume',
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
             'MLFLOW_DEFAULT_ARTIFACT_ROOT': 'file:///mlflow_data/artifacts',
-            'MODEL_NAME': 'water_quality_xgb',
+            'MODEL_NAME': 'water_quality',
             'KAFKA_BOOTSTRAP_SERVERS': '77.37.44.237:9092',  # VPS Kafka address
         },
         do_xcom_push=True,

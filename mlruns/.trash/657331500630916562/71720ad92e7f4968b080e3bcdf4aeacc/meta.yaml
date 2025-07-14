@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlartifacts/657331500630916562/71720ad92e7f4968b080e3bcdf4aeacc/artifacts
+deleted_time: 1751965329511
+end_time: 1751911929581
+entry_point_name: ''
+experiment_id: '657331500630916562'
+lifecycle_stage: deleted
+run_id: 71720ad92e7f4968b080e3bcdf4aeacc
+run_name: placid-quail-542
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1751911929509
+status: 3
+tags: []
+user_id: ''

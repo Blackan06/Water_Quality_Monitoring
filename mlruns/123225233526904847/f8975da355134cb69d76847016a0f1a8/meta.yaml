@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/123225233526904847/f8975da355134cb69d76847016a0f1a8/artifacts
+end_time: 1752157284368
+entry_point_name: ''
+experiment_id: '123225233526904847'
+lifecycle_stage: active
+run_id: f8975da355134cb69d76847016a0f1a8
+run_name: selective-deer-10
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752157284303
+status: 3
+tags: []
+user_id: ''

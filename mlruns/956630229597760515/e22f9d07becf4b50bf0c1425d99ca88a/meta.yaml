@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/956630229597760515/e22f9d07becf4b50bf0c1425d99ca88a/artifacts
+end_time: 1752122049683
+entry_point_name: ''
+experiment_id: '956630229597760515'
+lifecycle_stage: active
+run_id: e22f9d07becf4b50bf0c1425d99ca88a
+run_name: smiling-doe-904
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752122049535
+status: 3
+tags: []
+user_id: ''

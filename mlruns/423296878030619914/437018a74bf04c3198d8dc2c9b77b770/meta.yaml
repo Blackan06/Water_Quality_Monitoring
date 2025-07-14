@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/423296878030619914/437018a74bf04c3198d8dc2c9b77b770/artifacts
+end_time: 1752155304923
+entry_point_name: ''
+experiment_id: '423296878030619914'
+lifecycle_stage: active
+run_id: 437018a74bf04c3198d8dc2c9b77b770
+run_name: caring-stoat-256
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752155304861
+status: 3
+tags: []
+user_id: ''

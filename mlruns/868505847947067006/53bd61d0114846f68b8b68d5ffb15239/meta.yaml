@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/868505847947067006/53bd61d0114846f68b8b68d5ffb15239/artifacts
+end_time: 1752155485437
+entry_point_name: ''
+experiment_id: '868505847947067006'
+lifecycle_stage: active
+run_id: 53bd61d0114846f68b8b68d5ffb15239
+run_name: indecisive-rat-381
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752155485339
+status: 3
+tags: []
+user_id: ''

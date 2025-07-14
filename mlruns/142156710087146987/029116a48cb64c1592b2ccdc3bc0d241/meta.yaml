@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/142156710087146987/029116a48cb64c1592b2ccdc3bc0d241/artifacts
+end_time: 1752151768976
+entry_point_name: ''
+experiment_id: '142156710087146987'
+lifecycle_stage: active
+run_id: 029116a48cb64c1592b2ccdc3bc0d241
+run_name: burly-shad-841
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752151768850
+status: 3
+tags: []
+user_id: ''

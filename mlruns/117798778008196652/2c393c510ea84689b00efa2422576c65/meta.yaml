@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/117798778008196652/2c393c510ea84689b00efa2422576c65/artifacts
+end_time: 1752158014338
+entry_point_name: ''
+experiment_id: '117798778008196652'
+lifecycle_stage: active
+run_id: 2c393c510ea84689b00efa2422576c65
+run_name: learned-yak-781
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752158014256
+status: 3
+tags: []
+user_id: ''

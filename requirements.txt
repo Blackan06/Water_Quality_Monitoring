@@ -7,3 +7,7 @@ apache-airflow-providers-apache-kafka>=1.7.0
 elasticsearch
 mlflow>=2.3.0
 pyspark>=3.2.0
+xgboost>=2.0.0
+tensorflow
+
+astro-run-dag # This package is needed for the astro run command. It will be removed before a deploy

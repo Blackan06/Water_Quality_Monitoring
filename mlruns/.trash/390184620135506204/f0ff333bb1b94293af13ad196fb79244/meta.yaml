@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlartifacts/390184620135506204/f0ff333bb1b94293af13ad196fb79244/artifacts
+deleted_time: 1751910766365
+end_time: 1751905045071
+entry_point_name: ''
+experiment_id: '390184620135506204'
+lifecycle_stage: deleted
+run_id: f0ff333bb1b94293af13ad196fb79244
+run_name: aged-cub-501
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1751905044922
+status: 3
+tags: []
+user_id: ''

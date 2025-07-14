@@ -26,3 +26,7 @@ airflow:
   variables:
     - variable_name:
       variable_value:
+  config:
+    loggers:
+      confluent_kafka:
+        level: DEBUG

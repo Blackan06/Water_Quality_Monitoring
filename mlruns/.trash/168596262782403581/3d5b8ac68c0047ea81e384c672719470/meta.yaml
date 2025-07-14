@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlartifacts/168596262782403581/3d5b8ac68c0047ea81e384c672719470/artifacts
+deleted_time: 1751965331785
+end_time: 1751911173722
+entry_point_name: ''
+experiment_id: '168596262782403581'
+lifecycle_stage: deleted
+run_id: 3d5b8ac68c0047ea81e384c672719470
+run_name: luxuriant-dog-487
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1751911173648
+status: 3
+tags: []
+user_id: ''

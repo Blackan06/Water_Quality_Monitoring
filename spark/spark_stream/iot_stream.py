@@ -115,19 +115,20 @@ def save_monitoring_data_to_postgres(data):
         )
         cur = conn.cursor()
         insert_query = sql.SQL("""
-            INSERT INTO wqi_monitoring_data (temperature, "do", ph, wqi, wq_date)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO raw_sensor_data (station_id, measurement_time, temperature, "do", ph, wqi)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """)
         cur.execute(insert_query, (
+            1,  # Default station_id
+            data['wq_date'],  # measurement_time
             data['temperature'],
             data['do'],
             data['ph'],
-            data['wqi'],
-            data['wq_date']
+            data['wqi']
         ))
         conn.commit()
         cur.close()
-        logger.info("Saved monitoring data to wqi_monitoring_data.")
+        logger.info("Saved monitoring data to raw_sensor_data.")
     except Exception as e:
         logger.error(f"Error saving monitoring data: {e}")
     finally:

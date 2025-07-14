@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/140472279817371081/f817a765fc0e4a0d99b4ccd491e6f100/artifacts
+end_time: 1752157091035
+entry_point_name: ''
+experiment_id: '140472279817371081'
+lifecycle_stage: active
+run_id: f817a765fc0e4a0d99b4ccd491e6f100
+run_name: bold-grub-776
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752157090962
+status: 3
+tags: []
+user_id: ''

@@ -4,6 +4,7 @@ services:
       - bigdata-network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./models:/usr/local/airflow/models
     group_add:
       - "root"
 
@@ -12,13 +13,17 @@ services:
       - bigdata-network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./models:/usr/local/airflow/models
     group_add:
       - "root"
 
   triggerer:
     networks:
       - bigdata-network
-
+    volumes:
+      - ./models:/usr/local/airflow/models
+    group_add:
+      - "root"
 
   # Kafka Zookeeper
   kafka-ui:
@@ -73,7 +78,8 @@ services:
     volumes:
       - ./mlruns:/app/mlruns
       - ./mlartifacts:/app/mlartifacts
-
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5003
     entrypoint: ["mlflow", "server"]
     command:
       [
@@ -103,8 +109,6 @@ networks:
 volumes:
   mlruns:
   mlartifacts:
-  models:
-    driver: local
 
 
 
