@@ -6,8 +6,13 @@ apache-airflow-providers-docker==3.7.1
 apache-airflow-providers-apache-kafka>=1.7.0
 elasticsearch
 mlflow>=2.3.0
-pyspark>=3.2.0
+# pyspark>=3.2.0  # Commented out - too large, will install separately if needed
 xgboost>=2.0.0
-tensorflow
-
-astro-run-dag # This package is needed for the astro run command. It will be removed before a deploy
+# prometheus-client>=0.16.0  # Removed - no longer using Prometheus
+# prometheus_flask_exporter>=0.22.3  # Removed - no longer using Prometheus
+# tensorflow  # Commented out - too large, will install separately if needed
+optuna>=3.4.0
+pyyaml>=6.0.1
+scikit-learn>=1.3.0
+psutil>=5.9.0
+openai>=1.0.0

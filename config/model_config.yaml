@@ -1,0 +1,91 @@
+# Model Configuration for Water Quality Prediction
+
+# Data Configuration
+data:
+  sequence_length: 12  # Number of time steps to look back
+  target_column: "wqi"
+  feature_columns: ["ph", "temperature", "do"]
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+# LSTM Model Configuration
+lstm:
+  # Architecture
+  layers: [64, 32, 16]  # Hidden layer sizes
+  dropout_rate: 0.2
+  recurrent_dropout: 0.1
+  
+  # Training
+  batch_size: 32
+  epochs: 100
+  learning_rate: 0.001
+  optimizer: "adam"
+  loss_function: "mse"
+  
+  # Regularization
+  l1_regularization: 0.01
+  l2_regularization: 0.01
+  
+  # Early stopping
+  patience: 10
+  min_delta: 0.001
+
+# Cross-Validation Configuration
+cv:
+  method: "TimeSeriesSplit"
+  n_splits: 5
+  test_size: 0.2
+
+# Optuna Optimization Configuration
+optuna:
+  n_trials: 50
+  timeout: 3600  # 1 hour
+  direction: "minimize"  # Minimize loss
+  
+  # Search spaces
+  search_spaces:
+    learning_rate:
+      type: "log_uniform"
+      low: 0.0001
+      high: 0.1
+    
+    batch_size:
+      type: "categorical"
+      choices: [16, 32, 64, 128]
+    
+    layers:
+      type: "categorical"
+      choices: 
+        - [32, 16]
+        - [64, 32]
+        - [64, 32, 16]
+        - [128, 64, 32]
+    
+    dropout_rate:
+      type: "uniform"
+      low: 0.1
+      high: 0.5
+    
+    recurrent_dropout:
+      type: "uniform"
+      low: 0.0
+      high: 0.3
+
+# Model Evaluation
+evaluation:
+  metrics: ["mae", "mse", "rmse", "mape", "r2"]
+  cross_validation: true
+  save_predictions: true
+  
+# Model Persistence
+persistence:
+  model_dir: "models/"
+  save_format: "keras"
+  version_control: true
+  
+# Logging
+logging:
+  level: "INFO"
+  log_dir: "logs/"
+  tensorboard: true 

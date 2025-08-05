@@ -1,11 +1,16 @@
-FROM bitnami/spark:latest
+FROM --platform=linux/amd64 bitnami/spark:3.5.0
 
 USER root
 
-# 1) Cài wget, curl
-RUN apt-get update && apt-get install -y wget curl
+# 1) Cài wget, curl và đảm bảo Java được cấu hình đúng
+RUN apt-get update && apt-get install -y wget curl && apt-get clean
 
-# 2) Thêm thư viện JDBC PostgreSQL
+# 2) Thiết lập JAVA_HOME và Spark environment
+ENV JAVA_HOME=/opt/bitnami/java
+ENV SPARK_HOME=/opt/bitnami/spark
+ENV PATH=$JAVA_HOME/bin:$SPARK_HOME/bin:$PATH
+
+# 3) Thêm thư viện JDBC PostgreSQL
 RUN mkdir -p /opt/bitnami/spark/jars \
  && wget https://jdbc.postgresql.org/download/postgresql-42.6.0.jar \
       -O /opt/bitnami/spark/jars/postgresql-42.6.0.jar \
@@ -13,21 +18,24 @@ RUN mkdir -p /opt/bitnami/spark/jars \
 
 ENV CLASSPATH=/opt/bitnami/spark/jars/postgresql-42.6.0.jar:$CLASSPATH
 
-# 3) Copy và cài Python deps (bao gồm mlflow[spark])
+# 4) Copy và cài Python deps
 WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4) Copy code của bạn
+# 5) Copy code của bạn
 COPY spark_jobs/ /app/spark_jobs/
-COPY run_pipeline.py /app/
 
-# 5) Tạo thư mục lưu model
+# 6) Tạo thư mục lưu model
 RUN mkdir -p /app/models && chmod 777 /app/models
 
-# 6) Thiết đặt MLflow URI và Spark config
+# 7) Thiết đặt MLflow URI và Spark config
 ENV MLFLOW_TRACKING_URI=http://mlflow:5003
 ENV SPARK_MODE=client
 ENV SPARK_MASTER=spark://spark-master:7077
-# 7) Chạy pipeline
-CMD ["python3", "run_pipeline.py"]
+
+# 8) Verify Java installation
+RUN java -version && echo "JAVA_HOME: $JAVA_HOME"
+
+# 9) Chạy train ensemble model
+CMD ["python3", "/app/spark_jobs/train_ensemble_model.py"]

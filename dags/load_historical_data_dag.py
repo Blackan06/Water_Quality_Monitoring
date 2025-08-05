@@ -1,18 +1,27 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 from datetime import datetime, timedelta
 import logging
-import pandas as pd
 import os
-import numpy as np
-import shutil
-import joblib
-import json
-import tensorflow as tf
+os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
 import mlflow
+import mlflow.sklearn
+import tempfile
+import pickle
+import json
+import numpy as np
 
 # Cấu hình logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('logs/training.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Default arguments
@@ -22,253 +31,289 @@ default_args = {
     'start_date': datetime(2024, 1, 1),
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
 }
 
-def convert_numpy_types(obj):
-    """Convert numpy types to Python native types for XCom serialization"""
-    if isinstance(obj, dict):
-        return {str(k): convert_numpy_types(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_numpy_types(item) for item in obj]
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    else:
-        return obj
-
-def load_historical_data():
-    """Load dữ liệu lịch sử từ file CSV"""
+def process_training_results(**context):
+    """Process results from training and show best model information"""
     try:
-        csv_path = 'data/WQI_data.csv'
-        if not os.path.exists(csv_path):
-            logger.error(f"Historical data file not found: {csv_path}")
-            return None
+        logger.info("Processing training results...")
         
-        # Load CSV data
-        df = pd.read_csv(csv_path)
-        logger.info(f"Loaded historical data: {len(df)} records from {csv_path}")
+        import os
+        import json
         
-        # Convert Date column to datetime
-        df['Date'] = pd.to_datetime(df['Date'])
-        df['timestamp'] = df['Date']  # Add timestamp column for consistency
+        # Check for new comprehensive metrics first, then fallback to enhanced metadata
+        metrics_file = './models/metrics.json'
+        metadata_file = './models/enhanced_metadata.json'
         
-        # Rename columns to match expected format
-        df = df.rename(columns={
-            'PH': 'ph',
-            'DO': 'do',
-            'Temperature': 'temperature',
-            'WQI': 'wqi'
+        if os.path.exists(metrics_file):
+            # Use new comprehensive metrics
+            with open(metrics_file, 'r') as f:
+                metrics = json.load(f)
+            logger.info("📊 Using comprehensive ensemble metrics")
+        elif os.path.exists(metadata_file):
+            # Fallback to enhanced metadata
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            metrics = metadata['metrics']
+            logger.info("📊 Using enhanced metadata (fallback)")
+        else:
+            logger.error("❌ No metrics files found")
+            return "Training completed but no metrics found"
+        
+        # Extract metrics
+        xgb_r2 = metrics.get('xgb', {}).get('r2', 0.0)
+        rf_r2 = metrics.get('rf', {}).get('r2', 0.0)
+        ensemble_r2 = metrics.get('ensemble', {}).get('r2', 0.0)
+        
+        # Compare all models and select the best one
+        model_scores = {
+            'xgb': xgb_r2,
+            'rf': rf_r2,
+            'ensemble': ensemble_r2
+        }
+        
+        best_model = max(model_scores, key=model_scores.get)
+        best_score = model_scores[best_model]
+        
+        logger.info(f"📊 Model Performance Comparison:")
+        logger.info(f"  XGBoost: R² = {xgb_r2:.4f}")
+        logger.info(f"  Random Forest: R² = {rf_r2:.4f}")
+        logger.info(f"  Ensemble: R² = {ensemble_r2:.4f}")
+        logger.info(f"🏆 Best model selected: {best_model.upper()} (R²: {best_score:.4f})")
+        
+        # Cleanup inferior models to save space
+        _cleanup_inferior_models(best_model)
+        
+        # Push results to XCom
+        context['task_instance'].xcom_push(key='training_metrics', value=metrics)
+        context['task_instance'].xcom_push(key='best_model_info', value={
+            'feature_count': 105,  # Default feature count for comprehensive model
+            'best_model': best_model,
+            'best_score': best_score
         })
         
-        # Verify data quality
-        logger.info(f"Data columns: {list(df.columns)}")
-        logger.info(f"Date range: {df['Date'].min()} to {df['Date'].max()}")
-        logger.info(f"Stations: {sorted(df['station_id'].unique())}")
-        logger.info(f"Records per station: {df.groupby('station_id').size().to_dict()}")
-        
-        # Check for missing values
-        missing_data = df.isnull().sum()
-        if missing_data.sum() > 0:
-            logger.warning(f"Missing values found: {missing_data[missing_data > 0].to_dict()}")
-        
-        return df
+        return f"Training completed: {best_model.upper()} (R²: {best_score:.4f}) - Kept only best model"
         
     except Exception as e:
-        logger.error(f"Error loading historical data: {e}")
-        return None
+        logger.error(f"Error processing training results: {e}")
+        return f"Training processing failed: {str(e)}"
 
-def train_models_with_historical_data(**context):
-    """Train Global Multi-Series models cho WQI forecasting sử dụng dữ liệu lịch sử 2003-2023"""
-    from include.iot_streaming.model_manager import model_manager
-    
-    logger.info("Starting Global Multi-Series WQI forecasting training with historical data 2003-2023")
-    
-    # Load dữ liệu lịch sử từ CSV
-    historical_df = load_historical_data()
-    if historical_df is None:
-        logger.error("Failed to load historical data")
-        return "Failed to load historical data"
-    
-    # Get unique station IDs from data
-    unique_stations = sorted(historical_df['station_id'].unique())
-    logger.info(f"Found stations in data: {unique_stations}")
-    
-    # Train models for each station individually
-    all_xgb_results = {}
-    all_lstm_results = {}
-    
-    for station_id in unique_stations:
-        logger.info(f"Training models for station {station_id}")
-        
-        # Filter data for this station
-        station_data = historical_df[historical_df['station_id'] == station_id].copy()
-        
-        if len(station_data) < 50:
-            logger.warning(f"Insufficient data for station {station_id}: {len(station_data)} records")
-            continue
-        
-        # Train XGBoost model for this station
-        xgb_result = model_manager.train_xgboost_model(station_id, station_data)
-        all_xgb_results[station_id] = xgb_result
-        
-        # Train LSTM model for this station
-        lstm_result = model_manager.train_lstm_model(station_id, station_data)
-        all_lstm_results[station_id] = lstm_result
-        
-        # Create best model for this station
-        if 'error' not in xgb_result and 'error' not in lstm_result:
-            model_manager.create_best_model(station_id, xgb_result, lstm_result)
-            logger.info(f"✅ Best model created for station {station_id}")
-        else:
-            logger.warning(f"❌ Failed to create best model for station {station_id}")
-            if 'error' in xgb_result:
-                logger.error(f"XGBoost error for station {station_id}: {xgb_result['error']}")
-            if 'error' in lstm_result:
-                logger.error(f"LSTM error for station {station_id}: {lstm_result['error']}")
-    
-    # Use results from station 0 as the main results (for backward compatibility)
-    xgb_result = all_xgb_results.get(0, {'error': 'No models trained'})
-    lstm_result = all_lstm_results.get(0, {'error': 'No models trained'})
-    
-    # Calculate overall metrics from all stations
-    successful_stations = []
-    total_xgb_r2 = 0.0
-    total_lstm_r2 = 0.0
-    successful_count = 0
-    
-    for station_id in unique_stations:
-        xgb_result = all_xgb_results.get(station_id, {})
-        lstm_result = all_lstm_results.get(station_id, {})
-        
-        if 'error' not in xgb_result and 'error' not in lstm_result:
-            successful_stations.append(station_id)
-            total_xgb_r2 += xgb_result.get('r2_score', 0.0)
-            total_lstm_r2 += lstm_result.get('r2_score', 0.0)
-            successful_count += 1
-    
-    if successful_count > 0:
-        avg_xgb_r2 = total_xgb_r2 / successful_count
-        avg_lstm_r2 = total_lstm_r2 / successful_count
-        logger.info(f"Average XGBoost R² across {successful_count} stations: {avg_xgb_r2:.4f}")
-        logger.info(f"Average LSTM R² across {successful_count} stations: {avg_lstm_r2:.4f}")
-    else:
-        avg_xgb_r2 = 0.0
-        avg_lstm_r2 = 0.0
-        logger.warning("No successful model training across all stations")
-    
-    # Chọn best model dựa vào average R2
-    best_model_type = None
-    best_r2 = -np.inf
-    if avg_xgb_r2 > best_r2:
-        best_model_type = 'xgboost'
-        best_r2 = avg_xgb_r2
-    if avg_lstm_r2 > best_r2:
-        best_model_type = 'lstm'
-        best_r2 = avg_lstm_r2
-    
-    logger.info(f"Best model type is {best_model_type} with average R2={best_r2:.4f}")
-    
-    # Create global best model using station 0 results (if available)
-    if 0 in all_xgb_results and 0 in all_lstm_results:
-        xgb_result_0 = all_xgb_results[0]
-        lstm_result_0 = all_lstm_results[0]
-        
-        if 'error' not in xgb_result_0 and 'error' not in lstm_result_0:
-            logger.info("Creating global best model using station 0 results...")
-            best_model_created = model_manager.create_best_model(0, xgb_result_0, lstm_result_0)
-            if best_model_created:
-                logger.info("✅ Global best model created successfully using station 0")
+def save_models_to_mlflow(**context):
+    """Save trained models to MLflow registry (with dynamic input_example and correct log_model)."""
+    logger.info("Saving models to MLflow registry...")
+
+    # 1) Thiết lập MLflow tracking URI (file- or HTTP-backend)
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "file:///tmp/mlruns")
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("water_quality_models")
+
+    # 2) Đường dẫn file model
+    xgb_path     = './models/xgb.pkl'
+    scaler_path  = './models/scaler.pkl'
+    metrics_path = './models/metrics.json'
+
+    # 3) Kiểm tra tồn tại
+    for p in (xgb_path, scaler_path, metrics_path):
+        if not os.path.exists(p):
+            logger.error(f"Model file not found: {p}")
+            return f"Model file not found: {p}"
+
+    # 4) Load model, scaler, metrics
+    with open(xgb_path, 'rb') as f:
+        xgb_model = pickle.load(f)
+    with open(scaler_path, 'rb') as f:
+        scaler = pickle.load(f)
+    with open(metrics_path, 'r') as f:
+        metrics = json.load(f)
+
+    # 5) Chọn best model theo R²
+    best_name, best_info = max(metrics.items(), key=lambda kv: kv[1].get('r2', -float('inf')))
+    best_r2 = best_info.get('r2', 0.0)
+    logger.info(f"🏆 Best model: {best_name} (R²: {best_r2:.4f})")
+
+    # 6) Bắt đầu MLflow run
+    with mlflow.start_run(run_name="comprehensive_ensemble_training"):
+        # Log các tham số chung
+        mlflow.log_param("best_model", best_name)
+        mlflow.log_param("training_date", datetime.now().isoformat())
+
+        # Log metrics của best model
+        for metric_name, metric_val in best_info.items():
+            mlflow.log_metric(f"best_{metric_name}", metric_val)
+
+        # Log scaler (luôn cần)
+        mlflow.sklearn.log_model(
+            scaler,
+            artifact_path="scaler_model",
+            registered_model_name="water_quality_scaler"
+        )
+
+        # Nếu best là xgb hoặc ensemble, log XGBoost với đúng API
+        if best_name in ('xgb', 'ensemble'):
+            # Xác định số chiều đầu vào của XGB
+            n_features = getattr(xgb_model, "n_features_in_", None)
+            if n_features is None:
+                # fallback nếu attribute không có
+                sample_input = np.zeros((1, 1))
             else:
-                logger.error("❌ Failed to create global best model using station 0")
+                sample_input = np.zeros((1, n_features))
+            # Log XGBoost model
+            mlflow.xgboost.log_model(
+                xgb_model,
+                artifact_path="best_model",
+                registered_model_name="water_quality_best_model",
+                input_example=sample_input
+            )
+            logger.info("✅ XGBoost logged as best model")
         else:
-            logger.warning("⚠️ Cannot create global best model - station 0 models failed to train")
-    else:
-        logger.warning("⚠️ Station 0 not available for global best model creation")
-    
-    # Verify model registration in MLflow Registry
-    if successful_count > 0:
-        logger.info("Verifying model registration in MLflow Registry...")
-        try:
-            # Use MLflow client directly to check model registration
-            from mlflow.tracking import MlflowClient
-            client = MlflowClient()
-            
-            model_name = "water_quality"
-            try:
-                # Get the latest versions of the model
-                latest_versions = client.get_latest_versions(model_name, stages=["None"])
-                if latest_versions:
-                    logger.info(f"✅ Models successfully registered in MLflow Registry as '{model_name}'")
-                    logger.info(f"Latest version: {latest_versions[0].version}")
-                else:
-                    logger.warning(f"⚠️ No model versions found in MLflow Registry for '{model_name}'")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not verify model registration: {e}")
-                
-        except Exception as e:
-            logger.error(f"Error verifying model registration: {e}")
-    
-    logger.info(f"Multi-station WQI forecasting training completed")
-    logger.info(f"Stations trained: {successful_stations}")
-    logger.info(f"Average XGBoost R²: {avg_xgb_r2:.4f}")
-    logger.info(f"Average LSTM R²: {avg_lstm_r2:.4f}")
-    logger.info(f"Best model type: {best_model_type} with average R² = {best_r2:.4f}")
-    logger.info(f"Total records used: {len(historical_df)}")
-    logger.info(f"All stations included: {unique_stations}")
-    
-    # Push info to XCom
-    context['task_instance'].xcom_push(key='best_model_type', value=best_model_type)
-    context['task_instance'].xcom_push(key='best_model_r2', value=convert_numpy_types(best_r2))
-    context['task_instance'].xcom_push(key='successful_stations', value=successful_stations)
-    
-    return f"Best model ({best_model_type}) trained for {len(successful_stations)} stations with average R2={best_r2}"
+            logger.warning(f"No handler for best model type: {best_name}")
 
-def generate_training_summary(**context):
-    """Tạo summary chi tiết về quá trình training (pipeline chỉ còn 1 best model toàn cục)"""
-    from datetime import datetime
-    best_model_type = context['task_instance'].xcom_pull(
-        task_ids='train_models_with_historical_data', key='best_model_type'
-    )
-    best_model_r2 = context['task_instance'].xcom_pull(
-        task_ids='train_models_with_historical_data', key='best_model_r2'
-    )
-    summary = {
-        'best_model_type': best_model_type,
-        'best_model_r2': best_model_r2,
-        'execution_time': datetime.now().isoformat()
-    }
-    logger.info(f"Training summary generated: {summary}")
-    context['task_instance'].xcom_push(key='training_summary', value=summary)
-    return f"Training summary: {best_model_type} (R2={best_model_r2})"
+        # Log toàn bộ metrics.json như artifact
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp:
+            json.dump(metrics, tmp, indent=2)
+            tmp_path = tmp.name
+        mlflow.log_artifact(tmp_path, artifact_path="metrics")
+        os.remove(tmp_path)
+
+        run_id = mlflow.active_run().info.run_id
+        logger.info(f"✅ MLflow run completed: {run_id}")
+
+    return f"Best model saved to MLflow: {best_name} (R²: {best_r2:.4f})"
+
+def _cleanup_inferior_models(best_model):
+    """Xóa các model không tốt nhất để tiết kiệm dung lượng"""
+    try:
+        import os
+        
+        # Danh sách tất cả model files
+        model_files = [
+            'models/enhanced_xgb_model.pkl',
+            'models/enhanced_rf_model.pkl',
+            'models/enhanced_feature_pipeline.pkl',
+            'models/enhanced_scaler.pkl'
+        ]
+        
+        # Xác định file cần giữ lại
+        best_model_file = f'models/enhanced_{best_model}_model.pkl'
+        
+        deleted_count = 0
+        for model_file in model_files:
+            if os.path.exists(model_file) and model_file != best_model_file:
+                try:
+                    os.remove(model_file)
+                    logger.info(f"🗑️ Deleted inferior model: {model_file}")
+                    deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Could not delete {model_file}: {e}")
+        
+        logger.info(f"🧹 Cleanup completed: deleted {deleted_count} inferior models, kept {best_model}")
+        
+    except Exception as e:
+        logger.error(f"Error during model cleanup: {e}")
+
+def show_best_model_info(**context):
+    """Hiển thị thông tin model tốt nhất"""
+    try:
+        logger.info("Displaying best model information...")
+        
+        # Get training results from XCom
+        training_metrics = context['task_instance'].xcom_pull(
+            task_ids='process_training_results', key='training_metrics'
+        )
+        best_model_info = context['task_instance'].xcom_pull(
+            task_ids='process_training_results', key='best_model_info'
+        )
+        
+        if best_model_info:
+            best_model = best_model_info.get('best_model', 'Unknown')
+            best_score = best_model_info.get('best_score', 0.0)
+            feature_count = best_model_info.get('feature_count', 0)
+            
+            logger.info("🏆 BEST MODEL INFORMATION:")
+            logger.info(f"  Model Type: {best_model.upper()}")
+            logger.info(f"  R² Score: {best_score:.4f}")
+            logger.info(f"  Feature Count: {feature_count}")
+            logger.info(f"  Model File: enhanced_{best_model}_model.pkl")
+            
+            if training_metrics:
+                logger.info("📊 All Model Performance:")
+                for model_name, metrics in training_metrics.items():
+                    r2 = metrics.get('r2', 0.0)
+                    mae = metrics.get('mae', 0.0)
+                    rmse = metrics.get('rmse', 0.0)
+                    logger.info(f"  {model_name.upper()}: R²={r2:.4f}, MAE={mae:.4f}, RMSE={rmse:.4f}")
+            
+            return f"Best model: {best_model.upper()} (R²: {best_score:.4f}) with {feature_count} features"
+        else:
+            logger.warning("No best model information found")
+            return "No best model information available"
+        
+    except Exception as e:
+        logger.error(f"Error showing best model info: {e}")
+        return f"Error displaying best model info: {str(e)}"
 
 # Tạo DAG
 dag = DAG(
-    'load_historical_data_and_train',
+    'load_historical_data_and_train_ensemble',
     default_args=default_args,
-    description='Load historical WQI data 2003-2023 and train Global Multi-Series forecasting models for WQI prediction',
+    description='Load historical WQI data and train enhanced ensemble models',
     schedule_interval=None,  # Chạy thủ công
     start_date=datetime(2024, 1, 1),
     catchup=False,
-    tags=['water-quality', 'global-multiseries', 'wqi-forecasting', 'time-series', '2003-2023']
+    tags=['water-quality', 'ensemble-ml', 'wqi-forecasting', 'xgboost', 'random-forest']
 )
 
 # Định nghĩa các tasks
-train_models_task = PythonOperator(
-    task_id='train_models_with_historical_data',
-    python_callable=train_models_with_historical_data,
+# Task 1: Train model
+train_model_task = DockerOperator(
+    task_id='train_model',
+    image='airflow/iot_stream:ensemble',
+    container_name='spark_ensemble_training',
+    api_version='auto',
+    auto_remove=True,
+    docker_url='unix://var/run/docker.sock',
+    network_mode='bridge',
+    mount_tmp_dir=False,  # Disable automatic tmp directory mounting
+    mounts=[
+        Mount(source=os.getenv('PROJECT_ROOT', '/Users/kiethuynhanh/Documents/THACSIDOCUMENT/Water_Quality_Monitoring') + '/models', 
+              target='/app/models', type='bind'),
+        Mount(source=os.getenv('PROJECT_ROOT', '/Users/kiethuynhanh/Documents/THACSIDOCUMENT/Water_Quality_Monitoring') + '/spark', 
+              target='/app/spark', type='bind')
+    ],
+    environment={
+        'DB_HOST': '194.238.16.14',
+        'DB_PORT': '5432',
+        'DB_NAME': 'wqi_db',
+        'DB_USER': 'postgres',
+        'DB_PASSWORD': 'postgres1234',
+        'DB_SCHEMA': 'public',
+        'OUTPUT_MODEL_DIR': '/app/models',
+        'MLFLOW_TRACKING_URI': 'http://mlflow:5003'
+    },
+    command='python /app/spark/spark_jobs/train_ensemble_model.py',
     dag=dag
 )
 
-summary_task = PythonOperator(
-    task_id='generate_training_summary',
-    python_callable=generate_training_summary,
+# Task 2: Process training results
+process_results_task = PythonOperator(
+    task_id='process_training_results',
+    python_callable=process_training_results,
     dag=dag
 )
 
-# Định nghĩa dependencies
-train_models_task >> summary_task 
+# Task 3: Save models to MLflow
+save_mlflow_task = PythonOperator(
+    task_id='save_models_to_mlflow',
+    python_callable=save_models_to_mlflow,
+    dag=dag
+)
+
+# Task 4: Show best model information
+show_best_model_task = PythonOperator(
+    task_id='show_best_model_info',
+    python_callable=show_best_model_info,
+    dag=dag
+)
+
+# Định nghĩa dependencies - Sequential execution
+train_model_task >> process_results_task >> save_mlflow_task >> show_best_model_task 

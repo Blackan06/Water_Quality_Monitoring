@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlartifacts/793601796400041434/4d4d15592a81433dad2bf27fa6296c28/artifacts
+deleted_time: 1754376295707
+end_time: 1754325767568
+entry_point_name: ''
+experiment_id: '793601796400041434'
+lifecycle_stage: deleted
+run_id: 4d4d15592a81433dad2bf27fa6296c28
+run_name: comprehensive_ensemble_training
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1754325764291
+status: 4
+tags: []
+user_id: astro

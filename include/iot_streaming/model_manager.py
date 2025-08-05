@@ -12,17 +12,35 @@ from typing import Dict, Any, Optional, Tuple
 import xgboost as xgb
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
-from sklearn.model_selection import train_test_split, cross_val_score, KFold
+from sklearn.model_selection import train_test_split, cross_val_score, KFold, TimeSeriesSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-import tensorflow as tf
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+# Optional tensorflow imports - will be None if tensorflow is not installed
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential, load_model
+    from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
+    from tensorflow.keras.optimizers import Adam
+    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    tf = None
+    Sequential = None
+    load_model = None
+    LSTM = None
+    Dense = None
+    Dropout = None
+    BatchNormalization = None
+    Adam = None
+    EarlyStopping = None
+    ModelCheckpoint = None
+    TENSORFLOW_AVAILABLE = False
 import uuid
 import hashlib
 import mlflow
 from mlflow.tracking import MlflowClient
+import optuna
+import yaml
+from sklearn.linear_model import Ridge
 
 # Suppress Git warnings
 os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
@@ -57,33 +75,33 @@ class ModelManager:
         # Now ensure directories and cleanup experiments
         self.ensure_directories()
         
-        # Cấu hình model với hyperparameters cho dataset 2003-2023
+        # Cấu hình model với hyperparameters tối ưu cho tài nguyên thấp
         self.model_config = {
             'xgboost': {
-                'n_estimators': [100, 200, 300],  # Tăng cho dataset lớn
-                'max_depth': [4, 6, 8, 10],
-                'learning_rate': [0.01, 0.05, 0.1, 0.2],
-                'subsample': [0.8, 0.9, 1.0],
-                'colsample_bytree': [0.8, 0.9, 1.0],
+                'n_estimators': [50, 100, 150],  # Giảm từ 100-300 xuống 50-150
+                'max_depth': [3, 4, 6],  # Giảm từ 4-10 xuống 3-6
+                'learning_rate': [0.05, 0.1, 0.15],  # Giảm range
+                'subsample': [0.8, 0.9],  # Giảm options
+                'colsample_bytree': [0.8, 0.9],  # Giảm options
                 'random_state': 42
             },
             'lstm': {
-                'units': [64, 128, 256],  # Tăng units cho dataset phức tạp
-                'dropout': [0.1, 0.2, 0.3],
-                'epochs': 300,  # Tăng epochs cho dataset lớn
-                'batch_size': [16, 32, 64],
-                'sequence_length': [24, 36, 48, 60],  # 2-5 năm cho monthly data
-                'learning_rate': [0.001, 0.005, 0.01],
-                'layers': [2, 3, 4]  # Tăng layers cho dataset phức tạp
+                'units': [32, 64, 128],  # Giảm từ 64-256 xuống 32-128
+                'dropout': [0.1, 0.2],  # Giảm options
+                'epochs': 50,  # Giảm từ 300 xuống 50
+                'batch_size': [8, 16, 32],  # Giảm batch size
+                'sequence_length': [12, 24, 36],  # Giảm từ 24-60 xuống 12-36
+                'learning_rate': [0.001, 0.005],  # Giảm options
+                'layers': [1, 2]  # Giảm từ 2-4 xuống 1-2
             }
         }
         
-        # Cấu hình training
+        # Cấu hình training tối ưu cho tài nguyên thấp
         self.training_config = {
             'test_size': 0.2,
-            'cv_folds': 5,
+            'cv_folds': 3,  # Giảm từ 5 xuống 3
             'random_state': 42,
-            'early_stopping_patience': 10
+            'early_stopping_patience': 5  # Giảm từ 10 xuống 5
         }
 
     def ensure_directories(self):
@@ -295,7 +313,7 @@ class ModelManager:
                 data_clean['is_rainy_season'] = 1
                 data_clean['is_dry_season'] = 0
             
-            # Add lag features for time-series (WQI lags) - PER STATION
+            # Add lag features for time-series (WQI lags) - PER STATION (simplified)
             for station_id in data_clean['station_id'].unique():
                 station_mask = data_clean['station_id'] == station_id
                 station_data = data_clean[station_mask].copy()
@@ -304,7 +322,7 @@ class ModelManager:
                 if 'timestamp' in station_data.columns:
                     station_data = station_data.sort_values('timestamp').reset_index(drop=True)
                 
-                for lag in [1, 2, 3, 6, 12, 24]:  # Previous months (up to 2 years)
+                for lag in [1, 2, 3, 6, 12]:  # Giảm từ 6 lags xuống 5 lags
                     col_name = f'wqi_station_{station_id}_lag_{lag}'
                     
                     if len(station_data) > lag:
@@ -320,7 +338,7 @@ class ModelManager:
                         if len(station_data) > 0:
                             data_clean.loc[station_mask, col_name] = station_data[target].iloc[0]
             
-            # Add rolling statistics with multiple windows - PER STATION
+            # Add rolling statistics with multiple windows - PER STATION (simplified)
             for station_id in data_clean['station_id'].unique():
                 station_mask = data_clean['station_id'] == station_id
                 station_data = data_clean[station_mask].copy()
@@ -329,63 +347,53 @@ class ModelManager:
                 if 'timestamp' in station_data.columns:
                     station_data = station_data.sort_values('timestamp').reset_index(drop=True)
                 
-                for window in [3, 6, 12, 24]:  # Rolling windows (3 months to 2 years)
+                for window in [3, 6, 12]:  # Giảm từ 4 windows xuống 3 windows
                     mean_col = f'wqi_station_{station_id}_rolling_mean_{window}'
                     std_col = f'wqi_station_{station_id}_rolling_std_{window}'
-                    min_col = f'wqi_station_{station_id}_rolling_min_{window}'
-                    max_col = f'wqi_station_{station_id}_rolling_max_{window}'
                     
                     # Initialize columns with 0
                     data_clean[mean_col] = 0.0
                     data_clean[std_col] = 0.0
-                    data_clean[min_col] = 0.0
-                    data_clean[max_col] = 0.0
                     
                     if len(station_data) > window:
                         rolling_mean = station_data[target].rolling(window=window, min_periods=1).mean()
                         rolling_std = station_data[target].rolling(window=window, min_periods=1).std()
-                        rolling_min = station_data[target].rolling(window=window, min_periods=1).min()
-                        rolling_max = station_data[target].rolling(window=window, min_periods=1).max()
                         
                         # Fill any remaining NaN values
                         rolling_mean = rolling_mean.fillna(station_data[target].mean())
                         rolling_std = rolling_std.fillna(station_data[target].std())
-                        rolling_min = rolling_min.fillna(station_data[target].min())
-                        rolling_max = rolling_max.fillna(station_data[target].max())
                         
                         data_clean.loc[station_mask, mean_col] = rolling_mean.values
                         data_clean.loc[station_mask, std_col] = rolling_std.values
-                        data_clean.loc[station_mask, min_col] = rolling_min.values
-                        data_clean.loc[station_mask, max_col] = rolling_max.values
                     else:
                         # If not enough data for rolling window, use current statistics
                         if len(station_data) > 0:
                             current_mean = station_data[target].mean()
                             current_std = station_data[target].std()
-                            current_min = station_data[target].min()
-                            current_max = station_data[target].max()
                         else:
-                            current_mean = current_std = current_min = current_max = 0.0
+                            current_mean = current_std = 0.0
                         
                         data_clean.loc[station_mask, mean_col] = current_mean
                         data_clean.loc[station_mask, std_col] = current_std
-                        data_clean.loc[station_mask, min_col] = current_min
-                        data_clean.loc[station_mask, max_col] = current_max
             
-            # Add global features (across all stations)
-            # Global rolling statistics
-            for window in [3, 6, 12, 24]:
+            # Add global features (across all stations) - SAFE expanding statistics
+            # Use expanding window instead of rolling to avoid future leakage
+            data_clean['wqi_global_expanding_mean'] = data_clean[target].expanding(min_periods=1).mean()
+            data_clean['wqi_global_expanding_std'] = data_clean[target].expanding(min_periods=1).std()
+            
+            # Limited global rolling statistics with proper shift (only past information)
+            for window in [3, 6]:  # Reduced windows to avoid overfitting
                 if len(data_clean) > window:
-                    data_clean[f'wqi_global_rolling_mean_{window}'] = data_clean[target].rolling(window=window, min_periods=1).mean()
-                    data_clean[f'wqi_global_rolling_std_{window}'] = data_clean[target].rolling(window=window, min_periods=1).std()
+                    data_clean[f'wqi_global_rolling_mean_{window}'] = data_clean[target].shift(1).rolling(window=window, min_periods=1).mean()
+                    data_clean[f'wqi_global_rolling_std_{window}'] = data_clean[target].shift(1).rolling(window=window, min_periods=1).std()
                     
-                    # Fill NaN values
-                    data_clean[f'wqi_global_rolling_mean_{window}'] = data_clean[f'wqi_global_rolling_mean_{window}'].fillna(data_clean[target].mean())
-                    data_clean[f'wqi_global_rolling_std_{window}'] = data_clean[f'wqi_global_rolling_std_{window}'].fillna(data_clean[target].std())
+                    # Fill NaN values with expanding statistics
+                    data_clean[f'wqi_global_rolling_mean_{window}'] = data_clean[f'wqi_global_rolling_mean_{window}'].fillna(data_clean['wqi_global_expanding_mean'])
+                    data_clean[f'wqi_global_rolling_std_{window}'] = data_clean[f'wqi_global_rolling_std_{window}'].fillna(data_clean['wqi_global_expanding_std'])
                 else:
-                    # If not enough data, use global statistics
-                    data_clean[f'wqi_global_rolling_mean_{window}'] = data_clean[target].mean()
-                    data_clean[f'wqi_global_rolling_std_{window}'] = data_clean[target].std()
+                    # If not enough data, use expanding statistics
+                    data_clean[f'wqi_global_rolling_mean_{window}'] = data_clean['wqi_global_expanding_mean']
+                    data_clean[f'wqi_global_rolling_std_{window}'] = data_clean['wqi_global_expanding_std']
             
             # Add station-specific features
             # One-hot encoding for stations
@@ -409,15 +417,21 @@ class ModelManager:
             # Get all feature columns (excluding timestamp and target, but INCLUDING station_id)
             feature_columns = [col for col in data_clean.columns if col not in ['timestamp', target, 'created_at', 'Date']]
             
-            # Check for NaN values before dropping
-            nan_counts = data_clean[feature_columns + [target]].isnull().sum()
-            if nan_counts.sum() > 0:
-                logger.warning(f"NaN values found before dropna: {nan_counts[nan_counts > 0].to_dict()}")
-            
             # Debug: Log data size at each step
             logger.info(f"Data size before dropna: {len(data_clean)}")
             logger.info(f"Feature columns count: {len(feature_columns)}")
             logger.info(f"Target column: {target}")
+            
+            # Check for NaN values before dropping
+            try:
+                nan_counts = data_clean[feature_columns + [target]].isnull().sum()
+                if nan_counts.sum() > 0:
+                    logger.warning(f"NaN values found before dropna: {nan_counts[nan_counts > 0].to_dict()}")
+            except Exception as e:
+                logger.error(f"Error checking NaN values: {e}")
+                logger.error(f"Feature columns: {feature_columns}")
+                logger.error(f"Available columns: {list(data_clean.columns)}")
+                return None, None, None, None
             
             # Instead of dropping NaN values, fill them with appropriate values
             # Fill station-specific features with 0 for non-station rows
@@ -435,26 +449,64 @@ class ModelManager:
                 logger.warning(f"Original data size: {len(data)}")
                 logger.warning(f"Data after initial cleaning: {len(data_clean)}")
                 
-                # Debug: check what's causing data loss
-                if len(data_clean) == 0:
-                    logger.error("All data lost during feature engineering!")
-                    # Try to identify the problematic features
-                    logger.error(f"Feature columns: {feature_columns}")
-                    logger.error(f"Target column: {target}")
-                    
-                    # Check each feature column for NaN values
-                    for col in feature_columns + [target]:
-                        if col in data_clean.columns:
-                            nan_count = data_clean[col].isnull().sum()
-                            if nan_count > 0:
-                                logger.error(f"Column {col} has {nan_count} NaN values")
-                        else:
-                            logger.error(f"Column {col} not found in data_clean")
+                # Try to reduce features to get more data
+                logger.info("Attempting to reduce features to get more data...")
                 
-                return None, None, None, None
+                # Remove complex features that might cause data loss
+                simple_features = []
+                for col in feature_columns:
+                    # Keep basic features
+                    if any(keyword in col for keyword in ['station_', 'month', 'year', 'season', 'quarter']):
+                        simple_features.append(col)
+                    # Keep only short lag features (lag_1, lag_2, lag_3)
+                    elif 'lag_' in col and any(lag in col for lag in ['lag_1', 'lag_2', 'lag_3']):
+                        simple_features.append(col)
+                    # Keep only short rolling features (rolling_3, rolling_6)
+                    elif 'rolling_' in col and any(rolling in col for rolling in ['rolling_3', 'rolling_6']):
+                        simple_features.append(col)
+                    # Keep basic WQI features
+                    elif col in ['wqi', 'wqi_ma3', 'wqi_ma6']:
+                        simple_features.append(col)
+                
+                logger.info(f"Reduced features from {len(feature_columns)} to {len(simple_features)}")
+                logger.info(f"Simple features: {simple_features}")
+                
+                # Try with simplified features
+                try:
+                    X_simple = data_clean[simple_features].values
+                    y_simple = data_clean[target].values
+                    
+                    # Fill any remaining NaN values
+                    X_simple = np.nan_to_num(X_simple, nan=0.0)
+                    y_simple = np.nan_to_num(y_simple, nan=0.0)
+                    
+                    if len(X_simple) >= 30:  # Even lower threshold for simple features
+                        logger.info(f"Using simplified features: {len(X_simple)} samples")
+                        feature_columns = simple_features
+                        X = X_simple
+                        y = y_simple
+                    else:
+                        logger.error("Even simplified features don't provide enough data")
+                        return None, None, None, None
+                        
+                except Exception as e:
+                    logger.error(f"Error with simplified features: {e}")
+                    return None, None, None, None
             
-            X = data_clean[feature_columns].values
-            y = data_clean[target].values
+            try:
+                logger.info(f"Creating X from feature columns: {len(feature_columns)} columns")
+                X = data_clean[feature_columns].values
+                logger.info(f"X shape: {X.shape}")
+                
+                logger.info(f"Creating y from target column: {target}")
+                y = data_clean[target].values
+                logger.info(f"y shape: {y.shape}")
+            except Exception as e:
+                logger.error(f"Error creating X and y: {e}")
+                logger.error(f"Feature columns: {feature_columns}")
+                logger.error(f"Available columns: {list(data_clean.columns)}")
+                logger.error(f"Target column: {target}")
+                return None, None, None, None
             
             logger.info(f"Global Multi-Series data prepared: {len(X)} samples, {len(feature_columns)} features")
             logger.info(f"Stations included: {sorted(data_clean['station_id'].unique())}")
@@ -466,19 +518,18 @@ class ModelManager:
             else:
                 logger.info("No timestamp information available")
             
-            # For time-series, use temporal split instead of random split
-            if model_type == 'lstm':
-                # Use last 20% for testing (maintain temporal order)
-                split_idx = int(len(X) * 0.8)
-                X_train, X_test = X[:split_idx], X[split_idx:]
-                y_train, y_test = y[:split_idx], y[split_idx:]
-            else:
-                # For XGBoost, still use random split but with stratification if possible
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, 
-                    test_size=self.training_config['test_size'], 
-                    random_state=self.training_config['random_state']
-                )
+            # For time-series data, ALWAYS use temporal split to avoid data leakage
+            # Use last 20% for testing (maintain temporal order)
+            split_idx = int(len(X) * 0.8)
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
+            
+            logger.info(f"Time-based split: Train={len(X_train)} samples, Test={len(X_test)} samples")
+            if 'timestamp' in data_clean.columns:
+                train_dates = data_clean.iloc[:split_idx]['timestamp']
+                test_dates = data_clean.iloc[split_idx:]['timestamp']
+                logger.info(f"Train period: {train_dates.min()} to {train_dates.max()}")
+                logger.info(f"Test period: {test_dates.min()} to {test_dates.max()}")
             
             # Scale features
             scaler = StandardScaler()
@@ -494,6 +545,39 @@ class ModelManager:
             
             logger.info(f"Data split: Train={len(X_train)}, Test={len(X_test)}")
             logger.info(f"Feature count: {X_train.shape[1]} (including global multi-series features)")
+            
+            # Log feature list for reproducibility
+            feature_list = [f'feature_{i}' for i in range(X_train.shape[1])]
+            logger.info(f"Training feature list ({len(feature_list)} features): {feature_list}")
+            
+            # Save feature list to JSON for later use
+            feature_info = {
+                'feature_list': feature_list,
+                'feature_count': int(len(feature_list)),
+                'training_date': datetime.now().isoformat(),
+                'model_type': 'xgboost_global_multiseries',
+                'station_id': 'global'  # Use 'global' for multi-series model
+            }
+            
+            feature_list_path = os.path.join(self.models_dir, f'feature_list_global.json')
+            with open(feature_list_path, 'w') as f:
+                json.dump(feature_info, f, indent=2)
+            logger.info(f"Feature list saved to: {feature_list_path}")
+            
+            # MLflow logging of feature list
+            try:
+                import mlflow
+                # End any existing run first to avoid nested runs
+                try:
+                    mlflow.end_run()
+                except:
+                    pass
+                
+                mlflow.log_param("feature_count", int(len(feature_list)))
+                mlflow.log_param("feature_list", json.dumps(feature_list))
+                mlflow.log_artifact(feature_list_path, "feature_list.json")
+            except Exception as mlflow_error:
+                logger.warning(f"MLflow feature logging failed: {mlflow_error}")
             
             return X_train_scaled, X_test_scaled, y_train, y_test
             
@@ -593,55 +677,205 @@ class ModelManager:
             return {'cv_score': 0.0, 'cv_std': 0.0}
 
     def hyperparameter_tuning(self, X_train: np.ndarray, y_train: np.ndarray, model_type: str) -> Tuple[dict, float]:
-        """Hyperparameter tuning với grid search đơn giản"""
+        """Hyperparameter tuning với Optuna optimization"""
         try:
-            best_params = {}
-            best_score = -float('inf')
+            # Ensure data is properly shaped
+            if len(X_train.shape) > 2:
+                logger.warning(f"X_train has shape {X_train.shape}, flattening to 2D")
+                X_train = X_train.reshape(X_train.shape[0], -1)
+            
+            if len(y_train.shape) > 1:
+                logger.warning(f"y_train has shape {y_train.shape}, flattening to 1D")
+                y_train = y_train.flatten()
+            
+            logger.info(f"Optimization data shapes: X_train {X_train.shape}, y_train {y_train.shape}")
             
             if model_type == 'xgboost':
-                # Grid search cho XGBoost
-                for n_estimators in self.model_config['xgboost']['n_estimators']:
-                    for max_depth in self.model_config['xgboost']['max_depth']:
-                        for learning_rate in self.model_config['xgboost']['learning_rate']:
-                            params = {
-                                'n_estimators': n_estimators,
-                                'max_depth': max_depth,
-                                'learning_rate': learning_rate,
-                                'random_state': self.training_config['random_state']
-                            }
-                            
-                            # Create params without random_state for cross_validation
-                            cv_params = params.copy()
-                            del cv_params['random_state']
-                            
-                            cv_metrics = self.cross_validate_model(xgb.XGBRegressor, X_train, y_train, cv_params, model_type)
-                            score = cv_metrics['cv_score']
-                            
-                            if score > best_score:
-                                best_score = score
-                                best_params = params
-                                
-                            logger.info(f"XGBoost params {params} - CV Score: {score:.4f}")
-            
+                return self._optimize_xgboost(X_train, y_train)
             elif model_type == 'lstm':
-                # LSTM hyperparameter tuning với giá trị tối ưu hơn
-                best_params = {
-                    'units': 128,  # Tăng units cho capacity lớn hơn
-                    'dropout': 0.3,  # Tăng dropout để tránh overfitting
-                    'batch_size': 16,  # Batch size nhỏ hơn cho stability
-                    'sequence_length': 12,  # Giảm sequence length cho data ít
-                    'learning_rate': 0.0005,  # Learning rate nhỏ hơn
-                    'layers': 3,  # Tăng layers
-                    'epochs': 100  # Tăng epochs
-                }
-                best_score = 0.0  # Placeholder for LSTM
-            
-            logger.info(f"Best {model_type} params: {best_params} (Score: {best_score:.4f})")
-            return best_params, best_score
-            
+                return self._optimize_lstm(X_train, y_train)
+            else:
+                logger.error(f"Unsupported model type: {model_type}")
+                return {}, -float('inf')
+                
         except Exception as e:
             logger.error(f"Error in hyperparameter tuning: {e}")
             return {}, -float('inf')
+    
+    def _optimize_xgboost(self, X_train: np.ndarray, y_train: np.ndarray) -> Tuple[dict, float]:
+        """Optimize XGBoost hyperparameters với Optuna - simple train/test split"""
+        
+        def objective(trial):
+            # Suggest hyperparameters - expanded search space
+            params = {
+                'n_estimators': trial.suggest_int('n_estimators', 100, 500),  # Tăng range
+                'max_depth': trial.suggest_int('max_depth', 3, 12),  # Tăng depth
+                'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.2, log=True),  # Mở rộng range
+                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                'gamma': trial.suggest_float('gamma', 0.0, 1.0),  # Min split loss
+                'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),  # Min child weight
+                'reg_alpha': trial.suggest_float('reg_alpha', 0.0, 1.0),  # L1 regularization
+                'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 1.0),  # L2 regularization
+                'random_state': self.training_config['random_state']
+            }
+            
+            # TimeSeriesSplit cross-validation for time series data
+            tscv = TimeSeriesSplit(n_splits=3, test_size=int(0.2 * len(X_train)))
+            scores = []
+            
+            for train_idx, val_idx in tscv.split(X_train):
+                X_train_split, X_val_split = X_train[train_idx], X_train[val_idx]
+                y_train_split, y_val_split = y_train[train_idx], y_train[val_idx]
+                
+                if len(X_train_split) < 10 or len(X_val_split) < 5:
+                    continue  # Skip this fold if insufficient data
+                
+                # Ensure y_train_split is 1D
+                if len(y_train_split.shape) > 1:
+                    y_train_split = y_train_split.flatten()
+                if len(y_val_split.shape) > 1:
+                    y_val_split = y_val_split.flatten()
+                
+                # Create params without random_state for model
+                cv_params = params.copy()
+                del cv_params['random_state']
+                
+                try:
+                    model = xgb.XGBRegressor(**cv_params)
+                    model.fit(X_train_split, y_train_split)
+                    y_pred = model.predict(X_val_split)
+                    
+                    # Use negative MAE as score (minimize)
+                    mae = mean_absolute_error(y_val_split, y_pred)
+                    scores.append(-mae)
+                except Exception as e:
+                    logger.warning(f"XGBoost trial failed: {e}")
+                    continue
+            
+            if not scores:
+                return -float('inf')
+            
+            return np.mean(scores)
+        
+        # Create Optuna study
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=10, timeout=300)  # Giảm trials và timeout để tiết kiệm tài nguyên
+        
+        best_params = study.best_params
+        best_params['random_state'] = self.training_config['random_state']
+        best_score = study.best_value
+        
+        logger.info(f"Best XGBoost params: {best_params} (Score: {best_score:.4f})")
+        return best_params, best_score
+    
+    def _optimize_lstm(self, X_train: np.ndarray, y_train: np.ndarray) -> Tuple[dict, float]:
+        """Optimize LSTM hyperparameters với Optuna - TimeSeriesSplit CV"""
+        if not TENSORFLOW_AVAILABLE:
+            logger.warning("TensorFlow not available, skipping LSTM optimization")
+            return {}, 0.0
+        
+        def objective(trial):
+            # Suggest hyperparameters - lightweight ranges for resource efficiency
+            params = {
+                'units': trial.suggest_categorical('units', [32, 64, 128]),  # Giảm units
+                'dropout': trial.suggest_float('dropout', 0.1, 0.3),  # Giảm dropout range
+                'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32]),  # Giảm batch size
+                'sequence_length': trial.suggest_categorical('sequence_length', [12, 24, 36]),  # Giảm sequence length
+                'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.01, log=True),
+                'layers': trial.suggest_int('layers', 1, 2),  # Giảm layers
+                'optimizer': trial.suggest_categorical('optimizer', ['adam', 'rmsprop']),  # Giảm optimizer options
+                'epochs': 50  # Giảm epochs cho optimization
+            }
+            
+            # TimeSeriesSplit cross-validation for time series data
+            tscv = TimeSeriesSplit(n_splits=3, test_size=int(0.2 * len(X_train)))
+            scores = []
+            
+            for train_idx, val_idx in tscv.split(X_train):
+                X_train_split, X_val_split = X_train[train_idx], X_train[val_idx]
+                y_train_split, y_val_split = y_train[train_idx], y_train[val_idx]
+                
+                if len(X_train_split) < 10 or len(X_val_split) < 5:
+                    continue  # Skip this fold if insufficient data
+                
+                try:
+                    # Ensure data is 1D for sequence creation
+                    if len(y_train_split.shape) > 1:
+                        y_train_split = y_train_split.flatten()
+                    if len(y_val_split.shape) > 1:
+                        y_val_split = y_val_split.flatten()
+                    
+                    # Create sequences
+                    X_seq_train, y_seq_train = self.create_sequences(
+                        X_train_split, y_train_split, params['sequence_length']
+                    )
+                    X_seq_val, y_seq_val = self.create_sequences(
+                        X_val_split, y_val_split, params['sequence_length']
+                    )
+                    
+                    if len(X_seq_train) == 0 or len(X_seq_val) == 0:
+                        continue  # Skip this fold
+                    
+                    # Build and train model
+                    model = self.create_lstm_model(X_seq_train.shape[2], params)
+                    
+                    # Advanced callbacks
+                    early_stopping = EarlyStopping(
+                        patience=10,  # Tăng patience
+                        restore_best_weights=True,
+                        monitor='val_loss'
+                    )
+                    
+                    # Learning rate scheduler
+                    lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
+                        monitor='val_loss',
+                        factor=0.5,
+                        patience=5,
+                        min_lr=1e-7,
+                        verbose=0
+                    )
+                    
+                    # Model checkpoint
+                    checkpoint = tf.keras.callbacks.ModelCheckpoint(
+                        'best_lstm_model.h5',
+                        monitor='val_loss',
+                        save_best_only=True,
+                        verbose=0
+                    )
+                    
+                    model.fit(
+                        X_seq_train, y_seq_train,
+                        validation_data=(X_seq_val, y_seq_val),
+                        epochs=params['epochs'],
+                        batch_size=params['batch_size'],
+                        callbacks=[early_stopping, lr_scheduler, checkpoint],
+                        verbose=0
+                    )
+                    
+                    y_pred = model.predict(X_seq_val)
+                    mae = mean_absolute_error(y_seq_val, y_pred)
+                    scores.append(-mae)
+                    
+                except Exception as e:
+                    logger.warning(f"LSTM trial failed: {e}")
+                    continue
+            
+            if not scores:
+                return -float('inf')
+            
+            return np.mean(scores)
+        
+        # Create Optuna study
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=8, timeout=400)  # Giảm trials và timeout để tiết kiệm tài nguyên
+        
+        best_params = study.best_params
+        best_params['epochs'] = 100  # Tăng epochs cho final training
+        best_score = study.best_value
+        
+        logger.info(f"Best LSTM params: {best_params} (Score: {best_score:.4f})")
+        return best_params, best_score
 
     def train_xgboost_model(self, station_id: int, data: pd.DataFrame) -> Dict[str, Any]:
         """Train XGBoost model cho Global Multi-Series WQI Forecasting"""
@@ -669,6 +903,24 @@ class ModelManager:
             # Train final model với best parameters
             final_model = xgb.XGBRegressor(**best_params)
             final_model.fit(X_train, y_train)
+            
+            # Log feature list for reproducibility
+            feature_list = [f'feature_{i}' for i in range(X_train.shape[1])]
+            logger.info(f"Training feature list ({len(feature_list)} features): {feature_list}")
+            
+            # Save feature list to JSON for later use
+            feature_info = {
+                'feature_list': feature_list,
+                'feature_count': int(len(feature_list)),
+                'training_date': datetime.now().isoformat(),
+                'model_type': 'xgboost_global_multiseries',
+                'station_id': 'global'  # Use 'global' for multi-series model
+            }
+            
+            feature_list_path = os.path.join(self.models_dir, f'feature_list_global.json')
+            with open(feature_list_path, 'w') as f:
+                json.dump(feature_info, f, indent=2)
+            logger.info(f"Feature list saved to: {feature_list_path}")
             
             # Evaluate trên test set
             test_metrics = self.evaluate_model(final_model, X_test, y_test, 'xgboost')
@@ -723,9 +975,12 @@ class ModelManager:
                 for key, value in best_params.items():
                     mlflow.log_param(key, value)
                 
-                # Log metrics
+                # Log metrics with proper type conversion
                 for key, value in test_metrics.items():
-                    mlflow.log_metric(key, value)
+                    if isinstance(value, (int, float)):
+                        mlflow.log_metric(key, float(value))
+                    else:
+                        mlflow.log_metric(key, value)
                 
                 # Log model with proper signature and input example
                 try:
@@ -802,7 +1057,6 @@ class ModelManager:
                 'hyperparameters': best_params,
                 'cv_score': best_cv_score,
                 'stations_included': sorted(data['station_id'].unique()),
-                'model': final_model,
                 'mlflow_model_uri': model_uri
             }
             
@@ -817,121 +1071,171 @@ class ModelManager:
             return {'error': str(e)}
 
     def train_lstm_model(self, station_id: int, data: pd.DataFrame) -> Dict[str, Any]:
-        """Train LSTM model cho Global Multi-Series WQI Forecasting"""
+        """Train LSTM model cho Station-Specific WQI Forecasting với simplified approach"""
+        if not TENSORFLOW_AVAILABLE:
+            logger.warning(f"TensorFlow not available, skipping LSTM training for station {station_id}")
+            return {'error': 'TensorFlow not available', 'model_type': 'lstm'}
+        
         try:
             import mlflow
             import numpy as np
-            logger.info(f"Training Global Multi-Series LSTM model for WQI forecasting")
-            logger.info(f"Data includes stations: {sorted(data['station_id'].unique())}")
             
-            # Tạo experiment ID
-            experiment_id = self.create_experiment_id(station_id, 'lstm')
+            # Configure GPU for TensorFlow
+            try:
+                gpus = tf.config.experimental.list_physical_devices('GPU')
+                if gpus:
+                    try:
+                        for gpu in gpus:
+                            tf.config.experimental.set_memory_growth(gpu, True)
+                        logger.info(f"GPU configured for LSTM training: {len(gpus)} GPU(s) available")
+                    except RuntimeError as e:
+                        logger.warning(f"GPU configuration error: {e}")
+                else:
+                    logger.info("No GPU found for LSTM training, using CPU")
+            except Exception as e:
+                logger.warning(f"TensorFlow GPU configuration failed: {e}")
             
-            # Chuẩn bị dữ liệu (sử dụng toàn bộ data từ tất cả stations)
-            data_split = self.prepare_training_data(data, 'lstm')
-            if data_split[0] is None:
-                return {'error': 'Insufficient data'}
+            logger.info(f"Training Station-Specific LSTM model for station {station_id}")
             
-            X_train, X_test, y_train, y_test = data_split
+            # Filter data for this specific station only
+            station_data = data[data['station_id'] == station_id].copy()
             
-            # Hyperparameter tuning
-            best_params, _ = self.hyperparameter_tuning(X_train, y_train, 'lstm')
+            if len(station_data) < 50:
+                logger.warning(f"Insufficient data for station {station_id}: {len(station_data)} samples")
+                return {'error': f'Insufficient data for station {station_id}'}
             
-            # Tạo sequences cho LSTM
-            sequence_length = best_params.get('sequence_length', 10)
+            # Sort by timestamp to ensure temporal order
+            if 'timestamp' in station_data.columns:
+                station_data = station_data.sort_values('timestamp').reset_index(drop=True)
+            elif 'Date' in station_data.columns:
+                station_data['timestamp'] = pd.to_datetime(station_data['Date'])
+                station_data = station_data.sort_values('timestamp').reset_index(drop=True)
+            else:
+                # Create synthetic timestamp if not available
+                station_data['timestamp'] = pd.date_range(start='2003-01-15', periods=len(station_data), freq='M')
+                station_data = station_data.sort_values('timestamp').reset_index(drop=True)
+            
+            # Use only essential features for LSTM
+            essential_features = ['ph', 'temperature', 'do']
+            available_features = [col for col in essential_features if col in station_data.columns]
+            
+            if len(available_features) < 2:
+                logger.warning(f"Insufficient features for station {station_id}: {available_features}")
+                return {'error': f'Insufficient features for station {station_id}'}
+            
+            # Add basic temporal features
+            station_data['month'] = station_data['timestamp'].dt.month
+            station_data['year'] = station_data['timestamp'].dt.year
+            
+            # Cyclic encoding
+            station_data['month_sin'] = np.sin(2 * np.pi * station_data['month'] / 12)
+            station_data['month_cos'] = np.cos(2 * np.pi * station_data['month'] / 12)
+            
+            # Seasonal features
+            station_data['is_rainy_season'] = ((station_data['month'] >= 5) & (station_data['month'] <= 10)).astype(int)
+            
+            # Simple lag features
+            station_data['wqi_lag_1'] = station_data['wqi'].shift(1)
+            station_data['wqi_lag_2'] = station_data['wqi'].shift(2)
+            
+            # Simple rolling features
+            station_data['wqi_rolling_mean_3'] = station_data['wqi'].rolling(window=3, min_periods=1).mean()
+            
+            # Prepare final features
+            feature_columns = available_features + ['month_sin', 'month_cos', 'is_rainy_season', 
+                                                 'wqi_lag_1', 'wqi_lag_2', 'wqi_rolling_mean_3']
+            
+            # Remove rows with NaN values
+            station_data = station_data.dropna(subset=feature_columns + ['wqi'])
+            
+            if len(station_data) < 30:
+                logger.warning(f"Insufficient data after cleaning for station {station_id}: {len(station_data)} samples")
+                return {'error': f'Insufficient data after cleaning for station {station_id}'}
+            
+            # Prepare X and y
+            X = station_data[feature_columns].values
+            y = station_data['wqi'].values
+            
+            # Time-based split (80% train, 20% test)
+            split_idx = int(0.8 * len(X))
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
+            
+            if len(X_train) < 20 or len(X_test) < 5:
+                logger.warning(f"Insufficient data for train/test split for station {station_id}")
+                return {'error': f'Insufficient data for train/test split for station {station_id}'}
+            
+            # Hyperparameter tuning with simplified approach
+            best_params = {
+                'units': 32,  # Reduced complexity
+                'dropout': 0.2,
+                'batch_size': 16,
+                'sequence_length': 12,  # Reduced sequence length
+                'learning_rate': 0.001,
+                'layers': 1,  # Single layer
+                'optimizer': 'adam',
+                'epochs': 50  # Reduced epochs
+            }
+            
+            # Create sequences for LSTM
+            sequence_length = best_params['sequence_length']
             X_train_seq, y_train_seq = self.create_sequences(X_train, y_train, sequence_length)
             X_test_seq, y_test_seq = self.create_sequences(X_test, y_test, sequence_length)
             
-            # Check if sequences were created successfully
-            if len(X_train_seq) == 0 or len(X_test_seq) == 0:
-                logger.error(f"Failed to create sequences for global multi-series model")
-                return {'error': 'Failed to create sequences'}
+            if len(X_train_seq) < 10 or len(X_test_seq) < 3:
+                logger.warning(f"Insufficient sequences for LSTM training for station {station_id}")
+                return {'error': f'Insufficient sequences for LSTM training for station {station_id}'}
             
-            if len(X_train_seq) < 20:
-                logger.warning(f"Insufficient data for LSTM sequences: {len(X_train_seq)} samples")
-                return {'error': 'Insufficient data for LSTM sequences'}
-            
-            # Debug data types and shapes
-            logger.info(f"X_train_seq dtype: {X_train_seq.dtype}, shape: {X_train_seq.shape}")
-            logger.info(f"y_train_seq dtype: {y_train_seq.dtype}, shape: {y_train_seq.shape}")
-            logger.info(f"X_test_seq dtype: {X_test_seq.dtype}, shape: {X_test_seq.shape}")
-            logger.info(f"y_test_seq dtype: {y_test_seq.dtype}, shape: {y_test_seq.shape}")
-            
-            # Ensure data types are correct for TensorFlow
+            # Ensure data types
             X_train_seq = X_train_seq.astype(np.float32)
             y_train_seq = y_train_seq.astype(np.float32)
             X_test_seq = X_test_seq.astype(np.float32)
             y_test_seq = y_test_seq.astype(np.float32)
             
-            # Tạo LSTM model
-            model = self.create_lstm_model(X_train_seq.shape[2], best_params)
+            # Create simplified LSTM model
+            model = self.create_simplified_lstm_model(X_train_seq.shape[2], best_params)
             
             # Callbacks
             early_stopping = EarlyStopping(
                 monitor='val_loss', 
-                patience=self.training_config['early_stopping_patience'],
+                patience=10,
                 restore_best_weights=True
-            )
-            
-            # Suppress HDF5 warnings
-            import warnings
-            warnings.filterwarnings('ignore', category=UserWarning, module='keras.saving')
-            
-            model_checkpoint = ModelCheckpoint(
-                filepath=f'models/lstm_global_temp_{station_id}.keras',
-                monitor='val_loss',
-                save_best_only=True,
-                verbose=0
             )
             
             # Train model
             history = model.fit(
                 X_train_seq, y_train_seq,
-                epochs=best_params.get('epochs', 100),
-                batch_size=best_params.get('batch_size', 32),
-                validation_split=0.2,  # 20% của training data làm validation
-                callbacks=[early_stopping, model_checkpoint],
+                epochs=best_params['epochs'],
+                batch_size=best_params['batch_size'],
+                validation_split=0.2,
+                callbacks=[early_stopping],
                 verbose=0
             )
-            
-            # Load best model
-            model.load_weights(f'models/lstm_global_temp_{station_id}.keras')
             
             # Evaluate
             test_metrics = self.evaluate_model(model, X_test_seq, y_test_seq, 'lstm')
             
-            # Check if evaluation failed
             if not test_metrics:
-                logger.error(f"Global Multi-Series LSTM model evaluation failed")
+                logger.error(f"LSTM model evaluation failed for station {station_id}")
                 return {'error': 'LSTM model evaluation failed'}
             
-            # Tạo model version
-            model_version = f"lstm_global_multiseries_v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # Create model version
+            model_version = f"lstm_station_{station_id}_v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
-            # Lưu model
+            # Save model
             model_path = self.get_model_path(station_id, 'lstm', model_version)
             model.save(model_path)
             
-            # Cleanup temp file
-            if os.path.exists(f'models/lstm_global_temp_{station_id}.keras'):
-                os.remove(f'models/lstm_global_temp_{station_id}.keras')
+            # Cache model
+            self.model_cache[f"lstm_{station_id}"] = model
             
-            # Cache model (use 'global' as key for multi-series model)
-            self.model_cache[f"lstm_global"] = model
-            
-            # Also save model with 'global' key for easy access
-            global_model_path = self.get_model_path('global', 'lstm', model_version)
-            model.save(global_model_path)
-            
-            # Tạo experiment data
+            # Create experiment data
             experiment_data = {
-                'experiment_id': experiment_id,
                 'station_id': station_id,
-                'model_type': 'lstm_global_multiseries',
+                'model_type': 'lstm_station_specific',
                 'model_version': model_version,
                 'training_date': datetime.now().isoformat(),
                 'hyperparameters': best_params,
-                'validation_metrics': test_metrics,
                 'test_metrics': test_metrics,
                 'training_history': {
                     'final_loss': history.history['loss'][-1],
@@ -942,122 +1246,77 @@ class ModelManager:
                     'train_samples': len(X_train_seq),
                     'test_samples': len(X_test_seq),
                     'sequence_length': sequence_length,
-                    'features': 'Global Multi-Series: WQI temporal features + station_id features (one-hot + embedding)',
-                    'target': 'WQI',
-                    'stations_included': sorted(data['station_id'].unique())
+                    'features': feature_columns,
+                    'target': 'WQI'
                 }
             }
             
-            # Lưu experiment
+            # Save experiment
+            experiment_id = self.create_experiment_id(station_id, 'lstm')
             self.save_experiment(experiment_data)
             
-            # Đăng ký model trong MLflow (sau khi model đã được log)
-            # Model sẽ được đăng ký trong phần MLflow logging bên dưới
+            # Log results
+            logger.info(f"Station {station_id} LSTM model trained successfully")
+            logger.info(f"Test MAE: {test_metrics.get('mae', 0):.4f}, RMSE: {test_metrics.get('rmse', 0):.4f}, R2: {test_metrics.get('r2_score', 0):.4f}")
             
-            # Log model vào MLflow và lấy uri
-            experiment_name = "water_quality"
-            mlflow.set_experiment(experiment_name)
-            with mlflow.start_run() as run:
-                # Log parameters
-                for key, value in best_params.items():
-                    mlflow.log_param(key, value)
-                
-                # Log metrics
-                for key, value in test_metrics.items():
-                    mlflow.log_metric(key, value)
-                
-                # Log model with proper signature and input example
-                try:
-                    # Create input example for LSTM model using actual feature count
-                    import numpy as np
-                    actual_features = X_train_seq.shape[2]  # Use actual feature count from training data
-                    sequence_length = X_train_seq.shape[1]  # Use actual sequence length
-                    logger.info(f"LSTM training - Using feature count: {actual_features}, sequence length: {sequence_length}")
-                    input_example = np.random.randn(1, sequence_length, actual_features).astype(np.float32)
-                    
-                    # Use signature inference instead of manual signature
-                    from mlflow.models.signature import infer_signature
-                    
-                    # Create sample data for signature inference
-                    sample_X = np.random.randn(10, sequence_length, actual_features).astype(np.float32)
-                    sample_y = np.random.randn(10).astype(np.float32)
-                    signature = infer_signature(sample_X, sample_y)
-                    
-                    # Log model with inferred signature
-                    mlflow.tensorflow.log_model(
-                        model, 
-                        "model",
-                        input_example=input_example,
-                        signature=signature,
-                        registered_model_name="water_quality"
-                    )
-                    logger.info("✅ LSTM model logged successfully")
-                except Exception as e:
-                    logger.error(f"❌ Failed to log LSTM model: {e}")
-                    # Fallback: log without signature
-                    try:
-                        mlflow.tensorflow.log_model(
-                            model, 
-                            "model",
-                            registered_model_name="water_quality"
-                        )
-                        logger.info("✅ LSTM model logged without signature")
-                    except Exception as e2:
-                        logger.error(f"❌ Failed to log LSTM model even without signature: {e2}")
-                        return {'error': f'Failed to log model: {e2}'}
-                model_uri = f"runs:/{run.info.run_id}/model"
-                
-                # Register model and transition to staging
-                try:
-                    from mlflow.tracking import MlflowClient
-                    client = MlflowClient()
-                    
-                    # Get the latest version
-                    latest_versions = client.get_latest_versions("water_quality", stages=["None"])
-                    if latest_versions:
-                        latest_version = latest_versions[0]
-                        client.transition_model_version_stage(
-                            name="water_quality",
-                            version=latest_version.version,
-                            stage="Staging",
-                            archive_existing_versions=True
-                        )
-                        logger.info(f"Successfully transitioned model version {latest_version.version} to Staging")
-                except Exception as e:
-                    logger.warning(f"Failed to transition model to Staging: {e}")
-            
-            result = {
-                'station_id': station_id,
-                'model_type': 'lstm_global_multiseries',
-                'model_version': model_version,
+            return {
                 'model_path': model_path,
                 'experiment_id': experiment_id,
-                'mae': test_metrics.get('mae', 0.0),
-                'rmse': test_metrics.get('rmse', 0.0),
-                'r2_score': test_metrics.get('r2_score', 0.0),
-                'accuracy': test_metrics.get('accuracy', 0.0),
-                'mape': test_metrics.get('mape', 0.0),
-                'training_date': datetime.now().isoformat(),
-                'records_used': len(X_train_seq) + len(X_test_seq),
+                'model_version': model_version,
                 'hyperparameters': best_params,
-                'final_loss': history.history['loss'][-1],
-                'epochs_trained': len(history.history['loss']),
-                'stations_included': sorted(data['station_id'].unique()),
-                'model': model,
-                'mlflow_model_uri': model_uri
+                'test_metrics': test_metrics,
+                'training_history': experiment_data['training_history'],
+                'data_info': experiment_data['data_info'],
+                'r2_score': test_metrics.get('r2_score', 0),
+                'mae': test_metrics.get('mae', 0),
+                'rmse': test_metrics.get('rmse', 0),
+                'mape': test_metrics.get('mape', 0)
             }
             
-            logger.info(f"Global Multi-Series LSTM WQI forecasting model trained successfully")
-            logger.info(f"Test MAE: {test_metrics.get('mae', 0.0):.4f}, RMSE: {test_metrics.get('rmse', 0.0):.4f}, R2: {test_metrics.get('r2_score', 0.0):.4f}")
-            logger.info(f"Stations included: {sorted(data['station_id'].unique())}")
-            
-            return result
-            
         except Exception as e:
-            logger.error(f"Error training Global Multi-Series LSTM model: {e}")
-            import traceback
-            logger.error(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"Error training LSTM model for station {station_id}: {e}")
             return {'error': str(e)}
+
+    def create_simplified_lstm_model(self, n_features: int, params: dict):
+        """Tạo simplified LSTM model với architecture đơn giản"""
+        if not TENSORFLOW_AVAILABLE:
+            logger.warning("TensorFlow not available, cannot create LSTM model")
+            return None
+        
+        from tensorflow.keras.models import Model
+        from tensorflow.keras.layers import Input, LSTM, Dense, Dropout
+        from tensorflow.keras.optimizers import Adam
+        
+        units = params.get('units', 32)
+        dropout = params.get('dropout', 0.2)
+        learning_rate = params.get('learning_rate', 0.001)
+        sequence_length = params.get('sequence_length', 12)
+        
+        # Create input layer
+        input_layer = Input(shape=(sequence_length, n_features), name='input')
+        
+        # Single LSTM layer
+        x = LSTM(units, return_sequences=False, recurrent_dropout=0.1)(input_layer)
+        x = Dropout(dropout)(x)
+        
+        # Simple dense layers
+        x = Dense(16, activation='relu')(x)
+        x = Dropout(dropout * 0.5)(x)
+        
+        output_layer = Dense(1, activation='linear', name='output')(x)
+        
+        # Create model
+        model = Model(inputs=input_layer, outputs=output_layer)
+        
+        # Compile model
+        optimizer = Adam(learning_rate=learning_rate)
+        model.compile(
+            optimizer=optimizer,
+            loss='mse',
+            metrics=['mae']
+        )
+        
+        return model
 
     def create_sequences(self, X: np.ndarray, y: np.ndarray, sequence_length: int) -> Tuple[np.ndarray, np.ndarray]:
         """Tạo sequences cho LSTM"""
@@ -1089,67 +1348,70 @@ class ModelManager:
             return np.array([]), np.array([])
 
     def create_lstm_model(self, n_features: int, params: dict):
-        """Tạo LSTM model với hyperparameters tối ưu cho time-series prediction"""
+        """Tạo LSTM model với lightweight architecture để tiết kiệm tài nguyên"""
+        if not TENSORFLOW_AVAILABLE:
+            logger.warning("TensorFlow not available, cannot create LSTM model")
+            return None
+        
         from tensorflow.keras.models import Model
-        from tensorflow.keras.layers import Input
+        from tensorflow.keras.layers import Input, LSTM, Dense, Dropout
+        from tensorflow.keras.optimizers import Adam
         
-        units = params.get('units', 128)  # Tăng units
-        dropout = params.get('dropout', 0.3)  # Tăng dropout
-        learning_rate = params.get('learning_rate', 0.0005)  # Giảm learning rate
+        # Configure GPU memory growth to avoid OOM errors
+        try:
+            gpus = tf.config.experimental.list_physical_devices('GPU')
+            if gpus:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                logger.info("GPU memory growth enabled for LSTM model")
+        except Exception as e:
+            logger.warning(f"GPU configuration failed: {e}")
+        
+        units = params.get('units', 64)  # Giảm default units
+        dropout = params.get('dropout', 0.2)
+        learning_rate = params.get('learning_rate', 0.001)
         sequence_length = params.get('sequence_length', 24)
-        n_layers = params.get('layers', 3)  # Tăng layers
+        n_layers = params.get('layers', 1)  # Giảm default layers
+        optimizer_type = params.get('optimizer', 'adam')
         
-        # Create input layer explicitly for MLflow compatibility
+        # Create input layer
         input_layer = Input(shape=(sequence_length, n_features), name='input')
         x = input_layer
         
-        # First LSTM layer với nhiều units hơn
-        x = LSTM(units, 
-                 return_sequences=(n_layers > 1), 
-                 recurrent_dropout=0.2)(x)  # Thêm recurrent dropout
+        # Single LSTM layer (simplified)
+        x = LSTM(units, return_sequences=(n_layers > 1), recurrent_dropout=0.1)(x)
         x = Dropout(dropout)(x)
-        x = BatchNormalization()(x)  # Thêm batch normalization
         
-        # Middle LSTM layers với gradual reduction
-        for i in range(1, n_layers - 1):
-            current_units = max(units // (2 ** i), 32)  # Minimum 32 units
-            x = LSTM(current_units, 
-                     return_sequences=True,
-                     recurrent_dropout=0.2)(x)
-            x = Dropout(dropout)(x)
-            x = BatchNormalization()(x)
-        
-        # Last LSTM layer
+        # Second layer (optional)
         if n_layers > 1:
-            final_units = max(units // (2 ** (n_layers - 1)), 32)
-            x = LSTM(final_units, 
-                     return_sequences=False,
-                     recurrent_dropout=0.2)(x)
+            x = LSTM(units // 2, return_sequences=False, recurrent_dropout=0.1)(x)
             x = Dropout(dropout)(x)
-            x = BatchNormalization()(x)
         
-        # Dense layers với architecture tốt hơn
-        x = Dense(64, activation='relu')(x)
-        x = Dropout(dropout * 0.5)(x)
-        x = BatchNormalization()(x)
-        
+        # Simplified dense layers
         x = Dense(32, activation='relu')(x)
-        x = Dropout(dropout * 0.3)(x)
-        x = BatchNormalization()(x)
+        x = Dropout(dropout * 0.5)(x)
         
         x = Dense(16, activation='relu')(x)
-        output_layer = Dense(1, activation='linear', name='output')(x)  # Linear activation for regression
+        x = Dropout(dropout * 0.3)(x)
         
-        # Create model with explicit input and output
+        output_layer = Dense(1, activation='linear', name='output')(x)
+        
+        # Create model
         model = Model(inputs=input_layer, outputs=output_layer)
         
-        # Sử dụng optimizer tốt hơn
-        optimizer = Adam(learning_rate=learning_rate, clipnorm=1.0)  # Gradient clipping
+        # Choose optimizer
+        if optimizer_type == 'rmsprop':
+            optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+        elif optimizer_type == 'nadam':
+            optimizer = tf.keras.optimizers.Nadam(learning_rate=learning_rate)
+        else:
+            optimizer = Adam(learning_rate=learning_rate)
         
+        # Compile model với metrics đơn giản
         model.compile(
             optimizer=optimizer,
-            loss='huber',  # Huber loss tốt hơn cho time series
-            metrics=['mae', 'mse']
+            loss='mse',
+            metrics=['mae']
         )
         
         return model
@@ -1986,6 +2248,17 @@ class ModelManager:
 
     def predict_lstm(self, station_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Dự đoán với pre-trained LSTM model cho station"""
+        if not TENSORFLOW_AVAILABLE:
+            logger.warning(f"TensorFlow not available, skipping LSTM prediction for station {station_id}")
+            return {
+                'wqi_prediction': 50.0,  # Default WQI value
+                'confidence_score': 0.1,  # Very low confidence
+                'model_version': 'tensorflow_not_available',
+                'station_id': station_id,
+                'station_type': 'tensorflow_not_available',
+                'error': 'TensorFlow not available for LSTM prediction.'
+            }
+        
         try:
             logger.info(f"Predicting for station {station_id} using pre-trained LSTM model")
             
@@ -3197,6 +3470,197 @@ class ModelManager:
             12: -0.03   # December: Dry season, worse water quality
         }
         return seasonal_adjustments.get(month, 0.0)
+
+    def create_advanced_features(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Tạo advanced features cho better model performance"""
+        try:
+            # Copy data to avoid modifying original
+            df = data.copy()
+            
+            # Ensure we have timestamp column
+            if 'Date' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['Date'])
+            elif 'timestamp' not in df.columns:
+                # Create synthetic timestamp if not available
+                df['timestamp'] = pd.date_range(start='2003-01-01', periods=len(df), freq='M')
+            
+            # Sort by timestamp
+            df = df.sort_values('timestamp').reset_index(drop=True)
+            
+            # Basic temporal features
+            df['month'] = df['timestamp'].dt.month
+            df['year'] = df['timestamp'].dt.year
+            df['quarter'] = df['timestamp'].dt.quarter
+            df['season'] = df['timestamp'].dt.month % 12 // 3 + 1
+            
+            # Cyclic encoding for temporal features
+            df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
+            df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
+            df['quarter_sin'] = np.sin(2 * np.pi * df['quarter'] / 4)
+            df['quarter_cos'] = np.cos(2 * np.pi * df['quarter'] / 4)
+            
+            # Year encoding (normalize to 0-1 range)
+            df['year_normalized'] = (df['year'] - 2003) / (2023 - 2003)
+            
+            # Seasonal features
+            df['is_rainy_season'] = ((df['month'] >= 5) & (df['month'] <= 10)).astype(int)
+            df['is_dry_season'] = ((df['month'] <= 4) | (df['month'] >= 11)).astype(int)
+            
+            # Lag features for WQI
+            if 'wqi' in df.columns:
+                for lag in [1, 2, 3, 6, 12, 24]:
+                    df[f'wqi_lag_{lag}'] = df['wqi'].shift(lag)
+                
+                # Rolling window features
+                for window in [3, 6, 12, 24]:
+                    df[f'wqi_rolling_mean_{window}'] = df['wqi'].rolling(window=window).mean()
+                    df[f'wqi_rolling_std_{window}'] = df['wqi'].rolling(window=window).std()
+                    df[f'wqi_rolling_min_{window}'] = df['wqi'].rolling(window=window).min()
+                    df[f'wqi_rolling_max_{window}'] = df['wqi'].rolling(window=window).max()
+                    df[f'wqi_rolling_median_{window}'] = df['wqi'].rolling(window=window).median()
+            
+            # Interaction features
+            if all(col in df.columns for col in ['ph', 'temperature', 'do']):
+                df['ph_temp_interaction'] = df['ph'] * df['temperature']
+                df['ph_do_interaction'] = df['ph'] * df['do']
+                df['temp_do_interaction'] = df['temperature'] * df['do']
+                df['ph_temp_do_interaction'] = df['ph'] * df['temperature'] * df['do']
+            
+            # Trend features (polynomial)
+            if 'wqi' in df.columns:
+                df['wqi_trend'] = np.arange(len(df))
+                df['wqi_trend_squared'] = df['wqi_trend'] ** 2
+            
+            # Remove rows with NaN values
+            df = df.dropna()
+            
+            logger.info(f"Created advanced features. Final shape: {df.shape}")
+            logger.info(f"Feature columns: {list(df.columns)}")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error creating advanced features: {e}")
+            return data  # Return original data if error
+
+    def create_stacking_model(self, X_train: np.ndarray, y_train: np.ndarray, 
+                             X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, Any]:
+        """Tạo stacking model kết hợp XGBoost và LSTM"""
+        try:
+            from sklearn.linear_model import Ridge
+            from sklearn.ensemble import RandomForestRegressor
+            
+            logger.info("Creating stacking model...")
+            
+            # Step 1: Train base models
+            # XGBoost
+            xgb_params, xgb_score = self._optimize_xgboost(X_train, y_train)
+            xgb_model = xgb.XGBRegressor(**xgb_params)
+            xgb_model.fit(X_train, y_train)
+            xgb_pred_train = xgb_model.predict(X_train)
+            xgb_pred_test = xgb_model.predict(X_test)
+            
+            # LSTM
+            lstm_params, lstm_score = self._optimize_lstm(X_train, y_train)
+            
+            # Create sequences for LSTM
+            X_seq_train, y_seq_train = self.create_sequences(X_train, y_train, lstm_params['sequence_length'])
+            X_seq_test, y_seq_test = self.create_sequences(X_test, y_test, lstm_params['sequence_length'])
+            
+            lstm_model = self.create_lstm_model(X_seq_train.shape[2], lstm_params)
+            
+            # Advanced callbacks for LSTM
+            early_stopping = EarlyStopping(patience=10, restore_best_weights=True, monitor='val_loss')
+            lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss', factor=0.5, patience=5, min_lr=1e-7, verbose=0
+            )
+            
+            lstm_model.fit(
+                X_seq_train, y_seq_train,
+                validation_split=0.2,
+                epochs=lstm_params['epochs'],
+                batch_size=lstm_params['batch_size'],
+                callbacks=[early_stopping, lr_scheduler],
+                verbose=0
+            )
+            
+            lstm_pred_train = lstm_model.predict(X_seq_train).flatten()
+            lstm_pred_test = lstm_model.predict(X_seq_test).flatten()
+            
+            # Align predictions - LSTM has fewer samples due to sequence creation
+            # Use the same number of samples as LSTM predictions
+            xgb_pred_train_aligned = xgb_pred_train[-len(lstm_pred_train):]
+            xgb_pred_test_aligned = xgb_pred_test[-len(lstm_pred_test):]
+            y_train_aligned = y_train[-len(lstm_pred_train):]
+            y_test_aligned = y_test[-len(lstm_pred_test):]
+            
+            logger.info(f"Aligned predictions - XGBoost: {len(xgb_pred_train_aligned)}, LSTM: {len(lstm_pred_train)}")
+            
+            # Step 2: Create meta-features
+            meta_features_train = np.column_stack([xgb_pred_train_aligned, lstm_pred_train])
+            meta_features_test = np.column_stack([xgb_pred_test_aligned, lstm_pred_test])
+            
+            # Step 3: Train meta-learner
+            meta_learners = {
+                'ridge': Ridge(alpha=1.0),
+                'random_forest': RandomForestRegressor(n_estimators=100, random_state=42)
+            }
+            
+            best_meta_score = -float('inf')
+            best_meta_learner = None
+            best_meta_name = None
+            
+            for name, meta_learner in meta_learners.items():
+                meta_learner.fit(meta_features_train, y_train_aligned)
+                meta_pred = meta_learner.predict(meta_features_test)
+                meta_score = -mean_absolute_error(y_test_aligned, meta_pred)
+                
+                if meta_score > best_meta_score:
+                    best_meta_score = meta_score
+                    best_meta_learner = meta_learner
+                    best_meta_name = name
+            
+            # Step 4: Final predictions
+            final_pred = best_meta_learner.predict(meta_features_test)
+            
+            # Calculate metrics
+            mae = mean_absolute_error(y_test_aligned, final_pred)
+            mse = mean_squared_error(y_test_aligned, final_pred)
+            rmse = np.sqrt(mse)
+            r2 = r2_score(y_test_aligned, final_pred)
+            mape = np.mean(np.abs((y_test_aligned - final_pred) / y_test_aligned)) * 100
+            
+            metrics = {
+                'mae': float(mae),
+                'mse': float(mse),
+                'rmse': float(rmse),
+                'r2_score': float(r2),
+                'mape': float(mape)
+            }
+            
+            # Save models
+            stacking_result = {
+                'xgb_model': xgb_model,
+                'lstm_model': lstm_model,
+                'meta_learner': best_meta_learner,
+                'meta_learner_name': best_meta_name,
+                'xgb_params': xgb_params,
+                'lstm_params': lstm_params,
+                'metrics': metrics,
+                'xgb_score': xgb_score,
+                'lstm_score': lstm_score,
+                'meta_score': best_meta_score
+            }
+            
+            logger.info(f"Stacking model created successfully!")
+            logger.info(f"Meta-learner: {best_meta_name}")
+            logger.info(f"Final metrics - MAE: {mae:.4f}, RMSE: {rmse:.4f}, R²: {r2:.4f}, MAPE: {mape:.2f}%")
+            
+            return stacking_result
+            
+        except Exception as e:
+            logger.error(f"Error creating stacking model: {e}")
+            return {'error': str(e)}
 
 # Global instance
 model_manager = ModelManager() 

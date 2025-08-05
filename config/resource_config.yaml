@@ -1,0 +1,97 @@
+# Resource Configuration for Water Quality Monitoring
+# Tối ưu hóa để giảm thiểu tài nguyên sử dụng
+
+# Model Training Configuration
+model_training:
+  # XGBoost Configuration
+  xgboost:
+    max_estimators: 150  # Giảm từ 300
+    max_depth_range: [3, 6]  # Giảm từ [4, 10]
+    learning_rate_range: [0.05, 0.15]  # Giảm range
+    optuna_trials: 10  # Giảm từ 30
+    optuna_timeout: 300  # Giảm từ 600 seconds
+    
+  # LSTM Configuration  
+  lstm:
+    max_units: 128  # Giảm từ 256
+    max_layers: 2  # Giảm từ 4
+    max_epochs: 50  # Giảm từ 300
+    batch_size_range: [8, 32]  # Giảm từ [16, 64]
+    sequence_length_range: [12, 36]  # Giảm từ [24, 60]
+    optuna_trials: 8  # Giảm từ 25
+    optuna_timeout: 400  # Giảm từ 900 seconds
+    
+  # General Training
+  general:
+    cv_folds: 3  # Giảm từ 5
+    early_stopping_patience: 5  # Giảm từ 10
+    test_size: 0.2
+    min_data_samples: 10  # Giảm từ 20
+
+# Feature Engineering Configuration
+feature_engineering:
+  # Lag Features
+  lag_features:
+    max_lags: 5  # Giảm từ 6 (1, 2, 3, 6, 12)
+    max_lag_months: 12  # Giảm từ 24
+    
+  # Rolling Features
+  rolling_features:
+    max_windows: 3  # Giảm từ 4 (3, 6, 12)
+    max_window_months: 12  # Giảm từ 24
+    features_per_window: 2  # Chỉ mean và std, bỏ min/max
+    
+  # Station Features
+  station_features:
+    max_stations: 10  # Giới hạn số stations
+    embedding_dimension: 1  # Giảm complexity
+
+# Memory Management
+memory_management:
+  # Data Processing
+  data_processing:
+    chunk_size: 1000  # Process data in chunks
+    max_memory_usage: "2GB"  # Giới hạn memory usage
+    
+  # Model Caching
+  model_caching:
+    max_cached_models: 5  # Giới hạn số models trong cache
+    cache_cleanup_interval: 3600  # Cleanup cache mỗi giờ
+    
+  # MLflow Configuration
+  mlflow:
+    max_experiments: 50  # Giới hạn số experiments
+    cleanup_deleted_experiments: true
+    max_model_versions: 10  # Giới hạn số versions per model
+
+# Performance Optimization
+performance:
+  # Parallel Processing
+  parallel:
+    max_workers: 2  # Giảm từ 4
+    use_multiprocessing: false  # Tắt multiprocessing để tiết kiệm memory
+    
+  # GPU Configuration
+  gpu:
+    memory_growth: true
+    allow_memory_growth: true
+    max_gpu_memory: "1GB"  # Giới hạn GPU memory
+    
+  # CPU Configuration
+  cpu:
+    max_threads: 2  # Giảm số threads
+    use_mkl: false  # Tắt MKL để tiết kiệm memory
+
+# Timeout Configuration
+timeouts:
+  training_timeout: 7200  # 2 hours
+  prediction_timeout: 300  # 5 minutes
+  data_loading_timeout: 600  # 10 minutes
+  model_saving_timeout: 300  # 5 minutes
+
+# Logging Configuration
+logging:
+  level: "INFO"  # Giảm từ DEBUG
+  max_log_size: "10MB"
+  max_log_files: 5
+  log_to_file: false  # Chỉ log to console để tiết kiệm I/O 

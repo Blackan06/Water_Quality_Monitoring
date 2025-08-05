@@ -20,13 +20,27 @@ class DatabaseManager:
         self.init_database()
 
     def get_connection(self):
-        """Tạo kết nối đến database"""
-        try:
-            conn = psycopg2.connect(**self.db_config)
-            return conn
-        except Exception as e:
-            logger.error(f"Error connecting to database: {e}")
-            return None
+        """Tạo kết nối đến database với retry logic"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                conn = psycopg2.connect(**self.db_config)
+                # Test connection
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.fetchone()
+                cur.close()
+                logger.info(f"✅ Database connection successful on attempt {attempt + 1}")
+                return conn
+            except Exception as e:
+                logger.warning(f"⚠️ Database connection attempt {attempt + 1}/{max_retries} failed: {e}")
+                if attempt == max_retries - 1:
+                    logger.error(f"❌ Failed to connect to database after {max_retries} attempts")
+                    return None
+                import time
+                time.sleep(2)  # Wait 2 seconds before retry
+        
+        return None
 
     def init_database(self):
         """Khởi tạo các bảng cần thiết"""
@@ -920,6 +934,261 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error triggering ML pipeline: {e}")
             return False
+
+    def check_database_status(self):
+        """Kiểm tra trạng thái database và trả về thông tin tổng quan"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return "Error: Cannot connect to database"
+            
+            cur = conn.cursor()
+            
+            # Kiểm tra dữ liệu thô mới nhất
+            cur.execute("""
+                SELECT COUNT(*) as count
+                FROM raw_sensor_data
+                WHERE measurement_time >= NOW() - INTERVAL '7 days'
+            """)
+            raw_count = cur.fetchone()[0]
+            
+            # Kiểm tra dữ liệu đã xử lý
+            cur.execute("""
+                SELECT COUNT(*) as count
+                FROM processed_water_quality_data
+                WHERE measurement_time >= NOW() - INTERVAL '7 days'
+            """)
+            processed_count = cur.fetchone()[0]
+            
+            # Kiểm tra stations
+            cur.execute("SELECT COUNT(*) FROM monitoring_stations WHERE is_active = TRUE")
+            active_stations = cur.fetchone()[0]
+            
+            # Kiểm tra tổng số records
+            cur.execute("SELECT COUNT(*) FROM processed_water_quality_data")
+            total_historical = cur.fetchone()[0]
+            
+            cur.close()
+            conn.close()
+            
+            logger.info(f"✅ Database connection successful")
+            logger.info(f"📊 Raw data (7 days): {raw_count} records")
+            logger.info(f"📊 Processed data (7 days): {processed_count} records")
+            logger.info(f"📊 Active stations: {active_stations}")
+            logger.info(f"📊 Total historical records: {total_historical}")
+            
+            return f"Database initialized - {raw_count} raw, {processed_count} processed, {active_stations} active stations, {total_historical} total historical"
+            
+        except Exception as e:
+            logger.error(f"Error checking database status: {e}")
+            return f"Error: {e}"
+
+    def get_unprocessed_raw_count(self):
+        """Lấy số lượng raw sensor data chưa được xử lý"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return 0
+            
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*) as count
+                FROM raw_sensor_data
+                WHERE is_processed = FALSE
+            """)
+            
+            count = cur.fetchone()[0]
+            cur.close()
+            conn.close()
+            
+            return count
+            
+        except Exception as e:
+            logger.error(f"Error getting unprocessed raw count: {e}")
+            return 0
+
+    def get_stations_with_models(self):
+        """Lấy danh sách stations có models sẵn từ MLflow registry"""
+        try:
+            import mlflow
+            import os
+            
+            # Kiểm tra MLflow connection
+            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://mlflow:5003')
+            mlflow.set_tracking_uri(mlflow_tracking_uri)
+            
+            try:
+                # Kiểm tra xem có model nào trong registry không
+                client = mlflow.tracking.MlflowClient()
+                experiments = client.list_experiments()
+                
+                has_models = False
+                for exp in experiments:
+                    if exp.name in ["water_quality_models", "water_quality_predictions"]:
+                        runs = client.search_runs(exp.experiment_id, order_by=["attributes.start_time DESC"], max_results=1)
+                        if runs:
+                            has_models = True
+                            break
+                
+                if not has_models:
+                    logger.warning("No models found in MLflow registry")
+                    return []
+                    
+            except Exception as e:
+                logger.warning(f"MLflow connection failed: {e}")
+                # Fallback to file-based check
+                model_files = [
+                    "models/metrics.json",
+                    "models/enhanced_metadata.json", 
+                    "models/xgb.pkl",
+                    "models/rf_pipeline"
+                ]
+                has_models = any(os.path.exists(f) for f in model_files)
+                if not has_models:
+                    logger.warning("No models found in models directory")
+                    return []
+            
+            # Lấy tất cả stations active
+            conn = self.get_connection()
+            if not conn:
+                return []
+            
+            cur = conn.cursor()
+            cur.execute("SELECT station_id FROM monitoring_stations WHERE is_active = TRUE")
+            stations = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            station_ids = [station[0] for station in stations]
+            logger.info(f"Found {len(station_ids)} stations with available models")
+            
+            return station_ids
+            
+        except Exception as e:
+            logger.error(f"Error getting stations with models: {e}")
+            return []
+
+    def get_station_historical_count(self, station_id):
+        """Lấy số lượng historical data cho một station"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return 0
+            
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*) as count
+                FROM processed_water_quality_data
+                WHERE station_id = %s
+                AND measurement_time >= NOW() - INTERVAL '12 months'
+            """, (station_id,))
+            
+            count = cur.fetchone()[0]
+            cur.close()
+            conn.close()
+            
+            return count
+            
+        except Exception as e:
+            logger.error(f"Error getting historical count for station {station_id}: {e}")
+            return 0
+
+    def get_station_historical_data(self, station_id, limit=48):
+        """Lấy historical data cho một station để dùng cho prediction"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return None
+            
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT ph, temperature, "do", measurement_time
+                FROM raw_sensor_data 
+                WHERE station_id = %s AND is_processed = FALSE
+                ORDER BY measurement_time DESC
+                LIMIT %s
+            """, (station_id, limit))
+            
+            data = cur.fetchall()
+            
+            cur.close()
+            conn.close()
+            
+            if data:
+                logger.info(f"Retrieved {len(data)} unprocessed records for station {station_id}")
+                return data
+            else:
+                logger.warning(f"No unprocessed data found for station {station_id}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"Error getting unprocessed data for station {station_id}: {e}")
+            return None
+
+    def get_stations_with_new_data(self):
+        """Lấy danh sách stations có unprocessed raw data mới"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return []
+            
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT DISTINCT station_id
+                FROM raw_sensor_data
+                WHERE is_processed = FALSE
+                ORDER BY station_id
+            """)
+            
+            stations = [row[0] for row in cur.fetchall()]
+            
+            cur.close()
+            conn.close()
+            
+            if stations:
+                logger.info(f"Found {len(stations)} stations with new unprocessed data: {stations}")
+            else:
+                logger.info("No stations with new unprocessed data found")
+            
+            return stations
+            
+        except Exception as e:
+            logger.error(f"Error getting stations with new data: {e}")
+            return []
+
+    def update_metrics(self):
+        """Update database metrics for monitoring"""
+        try:
+            conn = self.get_connection()
+            if not conn:
+                return "Error: Cannot connect to database"
+            
+            cur = conn.cursor()
+            
+            # Get overview statistics
+            cur.execute("""
+                SELECT COUNT(DISTINCT station_id) as stations,
+                       COUNT(*) as measurements
+                FROM raw_sensor_data
+                WHERE measurement_time >= NOW() - INTERVAL '7 days'
+            """)
+            
+            stats = cur.fetchone()
+            cur.close()
+            conn.close()
+            
+            if stats:
+                stations, measurements = stats
+                logger.info(f"📊 Metrics updated - Stations: {stations}, Measurements: {measurements}")
+                return f"Database metrics updated - {stations} stations, {measurements} measurements"
+            else:
+                return "Database metrics updated - No recent data"
+            
+        except Exception as e:
+            logger.error(f"Error updating database metrics: {e}")
+            return f"Error: {e}"
 
 # Global instance
 db_manager = DatabaseManager() 

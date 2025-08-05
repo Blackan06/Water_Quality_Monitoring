@@ -44,16 +44,47 @@ def iot_pipeline_dag():
         provide_context=True,
     )
 
-    # Task chạy Spark job
-    run_spark_job = DockerOperator(
-        task_id='run_spark_job',
+    # Task chạy Spark ensemble training
+    run_spark_ensemble = DockerOperator(
+        task_id='run_spark_ensemble_training',
         image='airflow/iot_stream',
         api_version='auto',
         auto_remove=True,
         tty=True,
         xcom_all=False,
         mount_tmp_dir=False,
-        container_name='run_spark_job_container',
+        container_name='run_spark_ensemble_container',
+        docker_url='tcp://docker-proxy:2375',
+        command=[
+            'python', '/app/spark_jobs/train_ensemble_model.py'
+        ],
+        environment={
+            "OPENAI_API_KEY": openai_key,
+            'DB_HOST': '149.28.145.56',
+            'DB_PORT': '5432',
+            'DB_NAME': 'wqi_db',
+            'DB_USER': 'postgres',
+            'DB_PASSWORD': 'postgres1234',
+            'DB_SCHEMA': 'public',
+            'OUTPUT_MODEL_DIR': '/app/models',
+            'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
+            'MLFLOW_DEFAULT_ARTIFACT_ROOT': 'file:///mlflow_data/artifacts',
+            'MODEL_NAME': 'water_quality_ensemble',
+            'KAFKA_BOOTSTRAP_SERVERS': '77.37.44.237:9092',
+        },
+        do_xcom_push=True,
+    )
+    
+    # Task chạy Spark streaming job
+    run_spark_streaming = DockerOperator(
+        task_id='run_spark_streaming',
+        image='airflow/iot_stream',
+        api_version='auto',
+        auto_remove=True,
+        tty=True,
+        xcom_all=False,
+        mount_tmp_dir=False,
+        container_name='run_spark_streaming_container',
         docker_url='tcp://docker-proxy:2375',
         environment={
             "OPENAI_API_KEY": openai_key,
@@ -61,13 +92,19 @@ def iot_pipeline_dag():
             'SHARED_VOLUME_PATH': '/shared_volume',
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
             'MLFLOW_DEFAULT_ARTIFACT_ROOT': 'file:///mlflow_data/artifacts',
-            'MODEL_NAME': 'water_quality',
-            'KAFKA_BOOTSTRAP_SERVERS': '77.37.44.237:9092',  # VPS Kafka address
+            'MODEL_NAME': 'water_quality_ensemble',
+            'KAFKA_BOOTSTRAP_SERVERS': '77.37.44.237:9092',
         },
         do_xcom_push=True,
     )
   
-    chain(producer_task,[consumer_task,run_spark_job])
+    # Define task dependencies
+    # Producer -> Consumer & Ensemble Training (parallel)
+    # Consumer -> Streaming (sequential)
+    # Ensemble Training -> Streaming (sequential)
+    chain(producer_task, [consumer_task, run_spark_ensemble])
+    chain(consumer_task, run_spark_streaming)
+    chain(run_spark_ensemble, run_spark_streaming)
      
 
 iot_pipeline_dag()

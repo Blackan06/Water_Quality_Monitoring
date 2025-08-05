@@ -1,9 +1,5 @@
 # This file allows you to configure Airflow Connections, Pools, and Variables in a single place for local development only.
-# NOTE: json dicts can be added to the conn_extra field as yaml key value pairs. See the example below.
-
-# For more information, refer to our docs: https://www.astronomer.io/docs/astro/cli/develop-project#configure-airflow_settingsyaml-local-development-only
-# For questions, reach out to: https://support.astronomer.io
-# For issues create an issue ticket here: https://github.com/astronomer/astro-cli/issues
+# For more information, refer to our docs: https://docs.astronomer.io/astro/environment-variables#configure-airflow-settings
 
 airflow:
   connections:
@@ -15,18 +11,40 @@ airflow:
       conn_password: 
       conn_port: 9092 
       conn_extra:
-        "bootstrap.servers": "77.37.44.237:9092"
-        "group.id": "water_quality_group"
-        "auto.offset.reset": "earliest"
-
-  pools:
-    - pool_name:
-      pool_slot:
-      pool_description:
-  variables:
-    - variable_name:
-      variable_value:
+        bootstrap.servers: "77.37.44.237:9092"
+        group.id: "water_quality_group"
+        auto.offset.reset: "earliest"
+  
   config:
+    webserver:
+      enable_proxy_fix: true
+    metrics:
+      expose_metrics: true
+      prometheus_enable_basic_auth: false
+      prometheus_metric_path: '/api/v1/metrics'
+      expose_config: true
+      instance_name: Water Quality Monitoring
+
+    api:
+      auth_backends: airflow.api.auth.backend.basic_auth
+      access_control_allow_headers: "*"
+
+    # Logging configuration
     loggers:
       confluent_kafka:
         level: DEBUG
+      airflow.metrics:
+        level: INFO
+    logging:
+      logging_level: INFO
+
+  pools:
+    - pool_name: default_pool
+      pool_slot: 128
+      pool_description: Default pool
+
+  variables:
+    - variable_name: metrics_enabled
+      variable_value: "true"
+    - variable_name: prometheus_metrics_endpoint
+      variable_value: "http://localhost:8002/metrics"

@@ -1,0 +1,10 @@
+artifact_location: file:///app/mlartifacts/793601796400041434/models/m-a9ac46b6497543929ade8a87ea2fe6a1/artifacts
+creation_timestamp: 1754327394603
+experiment_id: '793601796400041434'
+last_updated_timestamp: 1754327397332
+model_id: m-a9ac46b6497543929ade8a87ea2fe6a1
+model_type: ''
+name: scaler_model
+source_run_id: f29f1412ce9d4cd99adf0e68fdab3f58
+status: 3
+status_message: null

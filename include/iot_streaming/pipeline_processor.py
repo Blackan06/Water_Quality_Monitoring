@@ -9,7 +9,6 @@ from datetime import datetime
 from .database_manager import db_manager
 from .station_processor_v2 import station_processor
 from .model_manager import model_manager
-from .prometheus_exporter import get_prometheus_exporter
 
 # Cấu hình logging
 logger = logging.getLogger(__name__)
@@ -433,4 +432,337 @@ class PipelineProcessor:
             
         except Exception as e:
             logger.error(f"Error summarizing pipeline execution: {e}")
-            raise 
+            raise
+
+    @staticmethod
+    def get_unprocessed_raw_data():
+        """Lấy dữ liệu raw sensors chưa được xử lý"""
+        try:
+            logger.info("Getting unprocessed raw sensor data...")
+            
+            conn = db_manager.get_connection()
+            if not conn:
+                logger.error("Cannot connect to database")
+                return []
+            
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT DISTINCT rs.station_id, rs.measurement_time, rs.ph, rs.temperature, rs."do"
+                FROM raw_sensor_data rs
+                WHERE rs.is_processed = FALSE
+                ORDER BY rs.station_id, rs.measurement_time DESC
+                LIMIT 100
+            """)
+            
+            raw_data = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            logger.info(f"Found {len(raw_data)} unprocessed raw sensor records")
+            return raw_data
+            
+        except Exception as e:
+            logger.error(f"Error getting unprocessed raw data: {e}")
+            return []
+
+    @staticmethod
+    def process_raw_data(raw_data):
+        """Process raw data thành processed data với WQI"""
+        try:
+            logger.info("Processing raw sensor data...")
+            
+            processed_count = 0
+            conn = db_manager.get_connection()
+            if not conn:
+                logger.error("Cannot connect to database for processing")
+                return 0
+            
+            for row in raw_data:
+                station_id, measurement_time, ph, temperature, do_val = row
+                
+                try:
+                    cur = conn.cursor()
+                    
+                    # Tính WQI từ dữ liệu thô
+                    wqi = PipelineProcessor._calculate_wqi(ph, temperature, do_val)
+                    
+                    if wqi is not None:
+                        # Lưu vào processed_water_quality_data
+                        cur.execute("""
+                            INSERT INTO processed_water_quality_data 
+                            (station_id, measurement_time, ph, temperature, "do", wqi)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (station_id, measurement_time) DO UPDATE SET
+                                ph = EXCLUDED.ph,
+                                temperature = EXCLUDED.temperature,
+                                "do" = EXCLUDED."do",
+                                wqi = EXCLUDED.wqi
+                        """, (station_id, measurement_time, ph, temperature, do_val, wqi))
+                        
+                        # Đánh dấu raw data đã được xử lý
+                        cur.execute("""
+                            UPDATE raw_sensor_data 
+                            SET is_processed = TRUE
+                            WHERE station_id = %s AND measurement_time = %s
+                        """, (station_id, measurement_time))
+                        
+                        conn.commit()
+                        processed_count += 1
+                        logger.debug(f"Processed raw data: station {station_id}, WQI = {wqi}")
+                        
+                    else:
+                        logger.warning(f"Failed to calculate WQI for station {station_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing raw data for station {station_id}: {e}")
+                    try:
+                        conn.rollback()
+                    except Exception as rollback_error:
+                        logger.error(f"Error during rollback: {rollback_error}")
+                finally:
+                    try:
+                        cur.close()
+                    except Exception as close_error:
+                        logger.error(f"Error closing cursor: {close_error}")
+            
+            conn.close()
+            logger.info(f"Processed {processed_count}/{len(raw_data)} raw sensor records")
+            return processed_count
+            
+        except Exception as e:
+            logger.error(f"Error processing raw data: {e}")
+            return 0
+
+    @staticmethod
+    def get_stations_with_models():
+        """Lấy danh sách stations có models sẵn"""
+        try:
+            import os
+            
+            # Kiểm tra xem có best models không
+            ensemble_metadata_path = "models/ensemble_metadata.json"
+            rf_model_path = "models/spark_rf_model.pkl"
+            xgb_model_path = "models/spark_xgb_model.pkl"
+            
+            available_stations = []
+            
+            if (os.path.exists(ensemble_metadata_path) or 
+                os.path.exists(rf_model_path) or 
+                os.path.exists(xgb_model_path)):
+                
+                # Lấy tất cả stations từ database
+                conn = db_manager.get_connection()
+                if conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT station_id FROM monitoring_stations WHERE is_active = TRUE")
+                    stations = cur.fetchall()
+                    cur.close()
+                    conn.close()
+                    
+                    available_stations = [station[0] for station in stations]
+                    logger.info(f"Found {len(available_stations)} stations with available models")
+                else:
+                    logger.warning("Cannot connect to database to get stations")
+            else:
+                logger.warning("No best models found")
+            
+            return available_stations
+            
+        except Exception as e:
+            logger.error(f"Error getting stations with models: {e}")
+            return []
+
+    @staticmethod
+    def get_stations_need_training():
+        """Lấy danh sách stations cần training (luôn rỗng vì không train mới)"""
+        return []
+
+    @staticmethod
+    def _calculate_wqi(ph, temperature, do):
+        """Tính WQI từ các thông số pH, temperature, DO"""
+        try:
+            # Convert Decimal to float để tránh lỗi type mismatch
+            ph = float(ph) if ph is not None else 0.0
+            temperature = float(temperature) if temperature is not None else 0.0
+            do = float(do) if do is not None else 0.0
+            
+            # Tính sub-indices cho từng thông số
+            # pH sub-index (giá trị tối ưu: 7.0)
+            if ph <= 7.0:
+                ph_subindex = 100 - (7.0 - ph) * 20  # Giảm 20 điểm cho mỗi đơn vị pH dưới 7.0
+            else:
+                ph_subindex = 100 - (ph - 7.0) * 20  # Giảm 20 điểm cho mỗi đơn vị pH trên 7.0
+            
+            ph_subindex = max(0, min(100, ph_subindex))
+            
+            # Temperature sub-index (giá trị tối ưu: 20-25°C)
+            if 20 <= temperature <= 25:
+                temp_subindex = 100
+            elif temperature < 20:
+                temp_subindex = 100 - (20 - temperature) * 5  # Giảm 5 điểm cho mỗi độ dưới 20
+            else:
+                temp_subindex = 100 - (temperature - 25) * 5  # Giảm 5 điểm cho mỗi độ trên 25
+            
+            temp_subindex = max(0, min(100, temp_subindex))
+            
+            # DO sub-index (giá trị tối ưu: >8 mg/L)
+            if do >= 8:
+                do_subindex = 100
+            else:
+                do_subindex = do * 12.5  # Tỷ lệ thuận với DO, tối đa 100
+            
+            do_subindex = max(0, min(100, do_subindex))
+            
+            # Tính WQI tổng hợp (trung bình có trọng số)
+            # Trọng số: pH (30%), Temperature (20%), DO (50%)
+            wqi = (ph_subindex * 0.3) + (temp_subindex * 0.2) + (do_subindex * 0.5)
+            
+            return round(wqi, 2)
+            
+        except Exception as e:
+            logger.error(f"Error calculating WQI: {e}")
+            logger.error(f"Input values - ph: {ph} (type: {type(ph)}), temperature: {temperature} (type: {type(temperature)}), do: {do} (type: {type(do)})")
+            return None
+
+    @staticmethod
+    def check_database_status():
+        """Kiểm tra trạng thái database và dữ liệu"""
+        try:
+            logger.info("Checking database status...")
+            
+            conn = db_manager.get_connection()
+            if not conn:
+                logger.error("❌ Cannot connect to database")
+                return "Error: Cannot connect to database"
+            
+            cur = conn.cursor()
+            
+            # Kiểm tra dữ liệu thô mới nhất từ sensors
+            cur.execute("""
+                SELECT station_id, measurement_time, ph, temperature, "do", wqi
+                FROM raw_sensor_data
+                ORDER BY measurement_time DESC
+                LIMIT 50
+            """)
+            
+            recent_raw_data = cur.fetchall()
+            
+            # Kiểm tra dữ liệu đã xử lý gần đây
+            cur.execute("""
+                SELECT station_id, measurement_time, ph, temperature, "do", wqi
+                FROM processed_water_quality_data
+                ORDER BY measurement_time DESC
+                LIMIT 20
+            """)
+            
+            recent_processed_data = cur.fetchall()
+            
+            # Kiểm tra thông tin stations
+            cur.execute("SELECT station_id, station_name FROM monitoring_stations WHERE is_active = TRUE")
+            stations = {row[0]: row[1] for row in cur.fetchall()}
+            
+            cur.close()
+            conn.close()
+            
+            if recent_raw_data:
+                logger.info(f"✅ Database connection successful - Found {len(recent_raw_data)} recent raw sensor data points")
+                logger.info(f"✅ Active stations: {list(stations.keys())}")
+                
+                # Log thông tin dữ liệu thô mẫu
+                sample_raw_data = recent_raw_data[0] if recent_raw_data else None
+                if sample_raw_data:
+                    station_id, measurement_time, ph, temp, do_val, wqi = sample_raw_data
+                    logger.info(f"📊 Latest raw sensor data - Station {station_id}: WQI={wqi}, pH={ph}, Temp={temp}, DO={do_val}")
+            else:
+                logger.warning("⚠️ No recent raw sensor data found in database")
+            
+            # Log thông tin về processed data
+            if recent_processed_data:
+                logger.info(f"📊 Found {len(recent_processed_data)} recent processed data points")
+                sample_processed_data = recent_processed_data[0] if recent_processed_data else None
+                if sample_processed_data:
+                    station_id, measurement_time, ph, temp, do_val, wqi = sample_processed_data
+                    logger.info(f"📊 Latest processed data - Station {station_id}: WQI={wqi}, pH={ph}, Temp={temp}, DO={do_val}")
+            else:
+                logger.info("📊 No recent processed data found")
+            
+            return f"Database connection initialized - {len(recent_raw_data)} raw sensor data points, {len(recent_processed_data)} processed data points"
+            
+        except Exception as e:
+            logger.error(f"❌ Error checking database status: {e}")
+            return f"Error: {e}"
+
+    @staticmethod
+    def get_station_historical_data(station_id):
+        """Lấy dữ liệu lịch sử cho một station"""
+        try:
+            conn = db_manager.get_connection()
+            if not conn:
+                logger.error("Cannot connect to database")
+                return []
+            
+            cur = conn.cursor()
+            
+            # Lấy dữ liệu lịch sử (48 tháng = 4 năm)
+            cur.execute("""
+                SELECT ph, temperature, "do", wqi, measurement_time
+                FROM processed_water_quality_data 
+                WHERE station_id = %s 
+                ORDER BY measurement_time DESC 
+                LIMIT 48
+            """, (station_id,))
+            
+            historical_data = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            logger.info(f"Retrieved {len(historical_data)} historical records for station {station_id}")
+            return historical_data
+            
+        except Exception as e:
+            logger.error(f"Error getting historical data for station {station_id}: {e}")
+            return []
+
+    @staticmethod
+    def create_summary(data):
+        """Create pipeline summary from orchestration data"""
+        try:
+            unprocessed_count = data.get('unprocessed_count', 0)
+            prediction_results = data.get('prediction_results', [])
+            alerts_result = data.get('alerts_result', '')
+            notifications_sent = data.get('notifications_sent', 0)
+            
+            # Handle None values
+            if prediction_results is None:
+                prediction_results = []
+            if alerts_result is None:
+                alerts_result = ''
+            if notifications_sent is None:
+                notifications_sent = 0
+            
+            # Calculate summary statistics
+            successful_predictions = len([p for p in prediction_results if p and p.get('success')])
+            total_predictions = len(prediction_results)
+            
+            summary = {
+                'total_raw_sensor_records': unprocessed_count,
+                'processed_records': 0,  # Not actually processed in this version
+                'successful_predictions': successful_predictions,
+                'total_predictions': total_predictions,
+                'prediction_success_rate': successful_predictions / total_predictions if total_predictions > 0 else 0,
+                'alerts_result': alerts_result,
+                'notifications_sent': notifications_sent,
+                'pipeline_type': 'streaming_data_processor',
+                'execution_time': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Pipeline summary created: {summary}")
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Error creating pipeline summary: {e}")
+            return {
+                'error': str(e),
+                'pipeline_type': 'streaming_data_processor',
+                'execution_time': datetime.now().isoformat()
+            } 

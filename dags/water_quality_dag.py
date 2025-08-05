@@ -2,6 +2,7 @@ from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 from datetime import datetime, timedelta
+from airflow.models import Variable
 
 default_args = {
     'owner': 'airflow',
