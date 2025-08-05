@@ -11,13 +11,13 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 1  # Giảm fetch depth để tăng tốc
           clean: false
   
       - name: Deploy to VPS using SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.3
         with:
           username: ${{ secrets.VPS_USERNAME }}
           host: ${{ secrets.VPS_HOST }}
@@ -27,45 +27,45 @@ jobs:
             cd Water_Quality_Monitoring 
 
             # Pull the latest code from the repository
+            echo "Pulling latest code..."
             git pull origin main
             
+            # Dừng Astro Dev nếu đang chạy (nhanh hơn)
+            echo "Stopping existing Astro Dev..."
+            astro dev kill || true
             
-           
-            # Kiểm tra nếu Astro Dev đang chạy (có container nào của Astro không?)
-            echo "Checking if Astro Dev is running..."
-            if docker ps | grep -q "webserver"; then
-              echo "Astro Dev is already running. Stopping it..."
-              # Dừng Astro Dev nếu đang chạy
-              astro dev kill
-            else
-              echo "Astro Dev is not running. Starting it..."
-            fi
-
-            # Khởi động Astro Dev
-            echo "Starting Astro Dev with Docker (Astronomer)..."
-            astro dev start
-            astro dev object import       
-
-            # Chờ một chút để các container khởi động
-            sleep 30
+            # Clean up Docker resources trước khi build
+            echo "Cleaning up Docker resources..."
+            docker system prune -f
             
-            # Dọn dẹp Docker
-            echo "Cleaning up unused Docker containers, volumes, networks..."
-            docker system prune -a -f         
-
+            # Build Docker images song song (nhanh hơn)
+            echo "Building Docker images in parallel..."
             
-             # Build water quality processor image
-            echo "Building water quality processor image..."
+            # Build water quality processor image
             cd spark
-            docker build -t water-quality-processor:latest .
-            cd ..
+            docker build -t airflow/iot_stream:ensemble . &
+           
+            # Chờ tất cả builds hoàn thành
+            wait
             
-            # Build IoT stream image
-            echo "Building IoT stream image..."
-
-            docker build -t  airflow/iot_stream  -f spark/spark_stream/Dockerfile .
-                         
-            echo "Deployment succeeded!"
+            # Khởi động Astro Dev với timeout
+            echo "Starting Astro Dev..."
+            timeout 300 astro dev start || {
+              echo "Astro Dev start timeout, trying again..."
+              astro dev kill
+              sleep 10
+              astro dev start
+            }
+            
+            # Import objects
+            echo "Importing Astro objects..."
+            astro dev object import || true
+            
+            # Final cleanup
+            echo "Final cleanup..."
+            docker system prune -f
+            
+            echo "Deployment completed successfully!"
             exit 0
 
 
