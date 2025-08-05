@@ -3,62 +3,52 @@ name: Deploy to VPS with Astro (Astronomer)
 on:
   push:
     branches:
-      - main  # Trigger the action on push to the main branch
+      - main  # Trigger on push to main branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # Giảm fetch depth để tăng tốc
+          fetch-depth: 1
           clean: false
-  
+
       - name: Deploy to VPS using SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          username: ${{ secrets.VPS_USERNAME }}
           host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
           password: ${{ secrets.VPS_PASSWORD }}
+          script_stop: true  # Dừng script nếu có lỗi (an toàn hơn)
           script: |
-            # Navigate to your project directory
-            cd Water_Quality_Monitoring 
+            set -e
 
-            # Pull the latest code from the repository
-            echo "Pulling latest code..."
+            echo "📦 Navigating to project directory..."
+            cd Water_Quality_Monitoring
+
+            echo "🔄 Pulling latest code from GitHub..."
             git pull origin main
-            
-            # Dừng Astro Dev nếu đang chạy (nhanh hơn)
-            echo "Stopping existing Astro Dev..."
-            astro dev stop
-            
-            #Start 
-            astro dev start
-            
-            # Clean up Docker resources trước khi build
-            echo "Cleaning up Docker resources..."
-            docker system prune -f
-            
-            # Build Docker images song song (nhanh hơn)
-            echo "Building Docker images in parallel..."
-            
-            # Build water quality processor image
+
+            echo "🛑 Stopping existing Astro Dev..."
+            astro dev stop || true  # Không fail nếu không có process
+
+            echo "🚀 Starting Astro Dev..."
+            astro dev start || true  # Có thể fail nếu chưa init, nên không stop job
+
+            echo "🧹 Cleaning up Docker resources..."
+            docker system prune -f || true
+
+            echo "🔨 Building Docker image for Spark..."
             cd spark
             docker build -t airflow/iot_stream:ensemble . &
-           
-            # Chờ tất cả builds hoàn thành
+
+            echo "⏳ Waiting for all Docker builds to finish..."
             wait
-            
-            
-            # Import objects
-            echo "Importing Astro objects..."
+            cd ..
+            echo "📥 Importing Astro objects..."
             astro dev object import || true
-            
-            
-            echo "Deployment completed successfully!"
-            exit 0
 
-
-
+            echo "✅ Deployment completed successfully!"
