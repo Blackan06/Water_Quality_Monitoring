@@ -32,7 +32,10 @@ jobs:
             
             # Dừng Astro Dev nếu đang chạy (nhanh hơn)
             echo "Stopping existing Astro Dev..."
-            astro dev kill || true
+            astro dev stop
+            
+            #Start 
+            astro dev start
             
             # Clean up Docker resources trước khi build
             echo "Cleaning up Docker resources..."
@@ -48,22 +51,11 @@ jobs:
             # Chờ tất cả builds hoàn thành
             wait
             
-            # Khởi động Astro Dev với timeout
-            echo "Starting Astro Dev..."
-            timeout 300 astro dev start || {
-              echo "Astro Dev start timeout, trying again..."
-              astro dev kill
-              sleep 10
-              astro dev start
-            }
             
             # Import objects
             echo "Importing Astro objects..."
             astro dev object import || true
             
-            # Final cleanup
-            echo "Final cleanup..."
-            docker system prune -f
             
             echo "Deployment completed successfully!"
             exit 0
