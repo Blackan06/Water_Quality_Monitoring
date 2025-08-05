@@ -18,12 +18,6 @@ airflow:
   config:
     webserver:
       enable_proxy_fix: true
-    metrics:
-      expose_metrics: true
-      prometheus_enable_basic_auth: false
-      prometheus_metric_path: '/api/v1/metrics'
-      expose_config: true
-      instance_name: Water Quality Monitoring
 
     api:
       auth_backends: airflow.api.auth.backend.basic_auth
@@ -33,8 +27,6 @@ airflow:
     loggers:
       confluent_kafka:
         level: DEBUG
-      airflow.metrics:
-        level: INFO
     logging:
       logging_level: INFO
 
@@ -43,8 +35,4 @@ airflow:
       pool_slot: 128
       pool_description: Default pool
 
-  variables:
-    - variable_name: metrics_enabled
-      variable_value: "true"
-    - variable_name: prometheus_metrics_endpoint
-      variable_value: "http://localhost:8002/metrics"
+
