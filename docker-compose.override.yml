@@ -135,6 +135,7 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true              # ✔️ Cho phép xem không cần login
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer          # ✔️ Chỉ quyền xem
       - GF_AUTH_BASIC_ENABLED=false 
+      - GF_SECURITY_ALLOW_EMBEDDING=true
     ports:
       - "3000:3000"
     depends_on:
