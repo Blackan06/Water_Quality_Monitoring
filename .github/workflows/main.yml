@@ -22,33 +22,36 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           password: ${{ secrets.VPS_PASSWORD }}
-          script_stop: true  # Dừng script nếu có lỗi (an toàn hơn)
+          port: 22  # Nếu bạn dùng port khác thì thay đổi ở đây
+          script_stop: true
+          timeout: 600s  # Timeout cho toàn phiên SSH
           script: |
-            set -e
-
             echo "📦 Navigating to project directory..."
-            cd Water_Quality_Monitoring
+            cd Water_Quality_Monitoring || { echo "❌ Directory not found"; exit 1; }
 
             echo "🔄 Pulling latest code from GitHub..."
-            git pull origin main
+            git reset --hard
+            git pull origin main || { echo "❌ Git pull failed"; exit 1; }
 
             echo "🛑 Stopping existing Astro Dev..."
-            astro dev stop || true  # Không fail nếu không có process
-
-            echo "🚀 Starting Astro Dev..."
-            astro dev start || true  # Có thể fail nếu chưa init, nên không stop job
+            astro dev stop || echo "⚠️ No Astro Dev process running"
 
             echo "🧹 Cleaning up Docker resources..."
-            docker system prune -f || true
+            docker system prune -f || echo "⚠️ Docker prune failed"
 
             echo "🔨 Building Docker image for Spark..."
-            cd spark
+            cd spark || exit 1
             docker build -t airflow/iot_stream:ensemble . &
-
-            echo "⏳ Waiting for all Docker builds to finish..."
-            wait
+            BUILD_PID=$!
             cd ..
+
+            echo "⏳ Waiting for Spark image build to finish..."
+            wait $BUILD_PID || echo "⚠️ Spark image build failed"
+
+            echo "🚀 Starting Astro Dev..."
+            astro dev start || echo "⚠️ Astro start failed"
+
             echo "📥 Importing Astro objects..."
-            astro dev object import || true
+            astro dev object import || echo "⚠️ Astro import failed"
 
             echo "✅ Deployment completed successfully!"
