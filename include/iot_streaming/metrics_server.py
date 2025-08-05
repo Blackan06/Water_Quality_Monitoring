@@ -17,7 +17,7 @@ import sys
 # Add the parent directory to the path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from prometheus_exporter import get_metrics
+# Removed prometheus_exporter import
 
 # Cấu hình logging
 logging.basicConfig(
@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 class MetricsServer:
     def __init__(self, port=8021):
         self.port = port
-        self.metrics = get_metrics()  # Use singleton instance
+        # Removed prometheus_exporter metrics
+        self.metrics = None
         self.app = Flask(__name__)
         self.setup_flask_routes()
         

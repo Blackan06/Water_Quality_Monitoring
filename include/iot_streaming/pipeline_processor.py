@@ -344,15 +344,8 @@ class PipelineProcessor:
                     if recent_data:
                         latest_record = recent_data[0]
                         
-                        # Cập nhật metrics
-                        # get_station_data returns: measurement_time, ph, temperature, "do", wqi
-                        get_prometheus_exporter().update_wqi_metric(station_id, latest_record[4], station_name)
-                        get_prometheus_exporter().update_ph_metric(station_id, latest_record[1], station_name)
-                        get_prometheus_exporter().update_temperature_metric(station_id, latest_record[2], station_name)
-                        get_prometheus_exporter().update_do_metric(station_id, latest_record[3], station_name)
-                    
-                    # Cập nhật station activity
-                    get_prometheus_exporter().update_station_activity(station_id, station_name)
+                        # Metrics functionality removed (Prometheus)
+                        pass
                     
                 except Exception as e:
                     logger.error(f"Error updating metrics for station {station_id}: {e}")

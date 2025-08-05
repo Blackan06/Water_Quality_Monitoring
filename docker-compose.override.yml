@@ -95,27 +95,7 @@ services:
         "--host", "0.0.0.0",
         "--port", "5003"
       ]
-  prometheus:
-    image: prom/prometheus:v2.44.0
-    networks:
-      - bigdata-network
-      - water-quality-monitoring
-    volumes:
-      - ./monitoring/prometheus:/etc/prometheus:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-lifecycle'
-      - '--web.enable-admin-api'
-      - '--log.level=debug'
-    ports:
-      - "9090:9090"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
+
 
   # === Grafana ===
   grafana:
@@ -138,8 +118,7 @@ services:
       - GF_SECURITY_ALLOW_EMBEDDING=true
     ports:
       - "3000:3000"
-    depends_on:
-      - prometheus
+
 
 
   docker-proxy:
@@ -165,7 +144,6 @@ networks:
 volumes:
   mlruns:
   mlartifacts:
-  prometheus_data:
   grafana_data:
 
 

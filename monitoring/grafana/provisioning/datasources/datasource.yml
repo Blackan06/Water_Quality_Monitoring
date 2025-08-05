@@ -1,22 +1,7 @@
 apiVersion: 1
 
 datasources:
-  - name: Prometheus
-    type: prometheus
-    access: proxy
-    url: http://host.docker.internal:9090
-    isDefault: true
-    editable: true
-    jsonData:
-      timeInterval: "5s"
-      queryTimeout: "30s"
-      httpMethod: "POST"
-      exemplarTraceIdDestinations:
-        - name: trace_id
-          datasourceUid: prometheus
-    secureJsonData: {}
-    version: 1
-    uid: prometheus
+  # Removed Prometheus datasource
 
   - name: PostgreSQL
     type: postgres
@@ -24,7 +9,7 @@ datasources:
     url: 194.238.16.14:5432
     database: wqi_db
     user: postgres
-    isDefault: false
+    isDefault: true
     editable: true
     jsonData:
       sslmode: disable
