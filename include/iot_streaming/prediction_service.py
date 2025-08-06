@@ -246,7 +246,7 @@ class PredictionService:
             
             # Try MLflow first
             try:
-                mlflow.set_tracking_uri("http://mlflow:5003")
+                mlflow.set_tracking_uri("http://77.37.44.237:5003")
                 
                 if model_type == 'xgb':
                     # Load best model from MLflow registry
@@ -627,7 +627,7 @@ class PredictionService:
             import os
             
             # Connect to MLflow
-            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://mlflow:5003')
+            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://77.37.44.237:5003')
             mlflow.set_tracking_uri(mlflow_tracking_uri)
             
             try:
@@ -638,8 +638,26 @@ class PredictionService:
                 best_score = 0.0
                 
                 experiments = client.list_experiments()
+                logger.info(f"Found {len(experiments)} experiments in MLflow")
+                
+                # Look for experiments with water quality models
+                valid_experiments = []
                 for exp in experiments:
-                    if exp.name in ["water_quality_models", "water_quality_predictions"]:
+                    if exp.name in ["water_quality_models", "water_quality_predictions"] or exp.name.startswith("water_quality_models_"):
+                        valid_experiments.append(exp)
+                        logger.info(f"Found valid experiment: {exp.name}")
+                
+                if not valid_experiments:
+                    logger.warning("No water quality experiments found in MLflow")
+                    return self._determine_best_model_from_files()
+                
+                # Check all valid experiments for the best model
+                best_model_type = 'xgb'  # default
+                best_score = 0.0
+                best_experiment = None
+                
+                for exp in valid_experiments:
+                    try:
                         # Get the latest run with best metrics
                         runs = client.search_runs(
                             exp.experiment_id, 
@@ -660,15 +678,26 @@ class PredictionService:
                                 'ensemble': ensemble_r2
                             }
                             
-                            best_model_type = max(model_scores, key=model_scores.get)
-                            best_score = model_scores[best_model_type]
+                            current_best = max(model_scores, key=model_scores.get)
+                            current_score = model_scores[current_best]
                             
-                            logger.info(f"📊 MLflow Model Performance:")
+                            logger.info(f"📊 MLflow Model Performance in {exp.name}:")
                             logger.info(f"  XGBoost: R² = {xgb_r2:.4f}")
                             logger.info(f"  Ensemble: R² = {ensemble_r2:.4f}")
-                            logger.info(f"🏆 Best model from MLflow: {best_model_type.upper()} (R²: {best_score:.4f})")
                             
-                            return best_model_type
+                            # Update best if this experiment has better scores
+                            if current_score > best_score:
+                                best_model_type = current_best
+                                best_score = current_score
+                                best_experiment = exp.name
+                                
+                    except Exception as exp_error:
+                        logger.warning(f"Error checking experiment {exp.name}: {exp_error}")
+                        continue
+                
+                if best_experiment:
+                    logger.info(f"🏆 Best model from MLflow: {best_model_type.upper()} (R²: {best_score:.4f}) from experiment: {best_experiment}")
+                    return best_model_type
                 
                 # Fallback to file-based check if MLflow fails
                 logger.warning("No models found in MLflow, falling back to file-based check")

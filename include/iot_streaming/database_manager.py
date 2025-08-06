@@ -1014,7 +1014,7 @@ class DatabaseManager:
             import os
             
             # Kiểm tra MLflow connection
-            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://mlflow:5003')
+            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://77.37.44.237:5003')
             mlflow.set_tracking_uri(mlflow_tracking_uri)
             
             try:
@@ -1024,10 +1024,11 @@ class DatabaseManager:
                 
                 has_models = False
                 for exp in experiments:
-                    if exp.name in ["water_quality_models", "water_quality_predictions"]:
+                    if exp.name in ["water_quality_models", "water_quality_predictions"] or exp.name.startswith("water_quality_models_"):
                         runs = client.search_runs(exp.experiment_id, order_by=["attributes.start_time DESC"], max_results=1)
                         if runs:
                             has_models = True
+                            logger.info(f"Found models in experiment: {exp.name}")
                             break
                 
                 if not has_models:

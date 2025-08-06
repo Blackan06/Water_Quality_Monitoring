@@ -547,7 +547,29 @@ class TrainingService:
                                 except:
                                     pass
                                 
-                                mlflow.set_experiment("water_quality")
+                                try:
+                                    mlflow.set_experiment("water_quality")
+                                    logger.info("✅ Using existing water_quality experiment")
+                                except Exception as e:
+                                    logger.warning(f"⚠️ Experiment 'water_quality' not found: {e}")
+                                    logger.info("🔄 Creating new experiment...")
+                                    
+                                    # Create new experiment with timestamp to avoid conflicts
+                                    from datetime import datetime
+                                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                    new_experiment_name = f"water_quality_{timestamp}"
+                                    
+                                    try:
+                                        # Create experiment via MLflow client
+                                        client = mlflow.tracking.MlflowClient()
+                                        experiment = client.create_experiment(new_experiment_name)
+                                        mlflow.set_experiment(new_experiment_name)
+                                        logger.info(f"✅ Created new experiment: {new_experiment_name}")
+                                    except Exception as create_error:
+                                        logger.error(f"❌ Failed to create experiment: {create_error}")
+                                        # Fallback to default experiment
+                                        mlflow.set_experiment("Default")
+                                        logger.info("ℹ️ Using default experiment as fallback")
                                 with mlflow.start_run() as run:
                                     # Log global metrics with proper type conversion
                                     mlflow.log_metric("global_r2", float(global_r2))

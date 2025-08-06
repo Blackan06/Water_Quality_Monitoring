@@ -54,7 +54,7 @@ services:
     environment:
       - SPARK_MODE=master
       - SPARK_MASTER_HOST=spark-master
-      - MLFLOW_TRACKING_URI=http://mlflow:5003 
+      - MLFLOW_TRACKING_URI=http://77.37.44.237:5003
     ports:
       - "8080:8080"  # Spark UI
       - "7077:7077"  # Spark master port
@@ -89,7 +89,7 @@ services:
       - ./mlruns:/app/mlruns
       - ./mlartifacts:/app/mlartifacts
     environment:
-      - MLFLOW_TRACKING_URI=http://mlflow:5003
+      - MLFLOW_TRACKING_URI=http://77.37.44.237:5003
     entrypoint: ["mlflow", "server"]
     command:
       [

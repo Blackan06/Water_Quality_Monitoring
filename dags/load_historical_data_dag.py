@@ -107,7 +107,33 @@ def save_models_to_mlflow(**context):
     # 1) Thiết lập MLflow tracking URI (VPS backend)
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://77.37.44.237:5003")
     mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment("water_quality_models")
+    
+    # Handle experiment creation/selection with error handling
+    experiment_name = "water_quality_models"
+    try:
+        # Try to set existing experiment
+        mlflow.set_experiment(experiment_name)
+        logger.info(f"✅ Using existing experiment: {experiment_name}")
+    except Exception as e:
+        logger.warning(f"⚠️ Experiment '{experiment_name}' not found or deleted: {e}")
+        logger.info("🔄 Creating new experiment...")
+        
+        # Create new experiment with timestamp to avoid conflicts
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        new_experiment_name = f"water_quality_models_{timestamp}"
+        
+        try:
+            # Create experiment via MLflow client
+            client = mlflow.tracking.MlflowClient()
+            experiment = client.create_experiment(new_experiment_name)
+            mlflow.set_experiment(new_experiment_name)
+            logger.info(f"✅ Created new experiment: {new_experiment_name}")
+        except Exception as create_error:
+            logger.error(f"❌ Failed to create experiment: {create_error}")
+            # Fallback to default experiment
+            mlflow.set_experiment("Default")
+            logger.info("ℹ️ Using default experiment as fallback")
 
     # 2) Đường dẫn file model
     xgb_path     = './models/xgb.pkl'
@@ -363,7 +389,7 @@ train_model_task = DockerOperator(
         'DB_PASSWORD': 'postgres1234',
         'DB_SCHEMA': 'public',
         'OUTPUT_MODEL_DIR': '/app/models',
-        'MLFLOW_TRACKING_URI': 'http://mlflow:5003'
+        'MLFLOW_TRACKING_URI': 'http://77.37.44.237:5003'
     },
     command='python /app/spark/spark_jobs/train_ensemble_model.py',
     dag=dag

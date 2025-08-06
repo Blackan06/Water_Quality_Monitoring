@@ -65,9 +65,9 @@ class ModelManager:
         
         # MLflow API configuration
         self.mlflow_config = {
-            'tracking_uri': os.getenv('MLFLOW_TRACKING_URI', 'http://mlflow:5003'),
-            'registry_uri': os.getenv('MLFLOW_REGISTRY_URI', 'http://mlflow:5003'),
-            'api_base_url': os.getenv('MLFLOW_API_BASE_URL', 'http://mlflow:5003/api/2.0'),
+            'tracking_uri': os.getenv('MLFLOW_TRACKING_URI', 'http://77.37.44.237:5003'),
+            'registry_uri': os.getenv('MLFLOW_REGISTRY_URI', 'http://77.37.44.237:5003'),
+            'api_base_url': os.getenv('MLFLOW_API_BASE_URL', 'http://77.37.44.237:5003/api/2.0'),
             'username': os.getenv('MLFLOW_USERNAME', ''),
             'password': os.getenv('MLFLOW_PASSWORD', '')
         }
@@ -969,7 +969,29 @@ class ModelManager:
             
             # Log model vào MLflow và lấy uri
             experiment_name = "water_quality"
-            mlflow.set_experiment(experiment_name)
+            try:
+                mlflow.set_experiment(experiment_name)
+                logger.info(f"✅ Using existing experiment: {experiment_name}")
+            except Exception as e:
+                logger.warning(f"⚠️ Experiment '{experiment_name}' not found: {e}")
+                logger.info("🔄 Creating new experiment...")
+                
+                # Create new experiment with timestamp to avoid conflicts
+                from datetime import datetime
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                new_experiment_name = f"water_quality_{timestamp}"
+                
+                try:
+                    # Create experiment via MLflow client
+                    client = mlflow.tracking.MlflowClient()
+                    experiment = client.create_experiment(new_experiment_name)
+                    mlflow.set_experiment(new_experiment_name)
+                    logger.info(f"✅ Created new experiment: {new_experiment_name}")
+                except Exception as create_error:
+                    logger.error(f"❌ Failed to create experiment: {create_error}")
+                    # Fallback to default experiment
+                    mlflow.set_experiment("Default")
+                    logger.info("ℹ️ Using default experiment as fallback")
             with mlflow.start_run() as run:
                 # Log parameters
                 for key, value in best_params.items():
@@ -1646,7 +1668,29 @@ class ModelManager:
             # QUAN TRỌNG: Đăng ký model vào MLflow Registry
             try:
                 # Sử dụng MLflow tracking API trực tiếp thay vì REST API
-                mlflow.set_experiment(experiment_name)
+                try:
+                    mlflow.set_experiment(experiment_name)
+                    logger.info(f"✅ Using existing experiment: {experiment_name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Experiment '{experiment_name}' not found: {e}")
+                    logger.info("🔄 Creating new experiment...")
+                    
+                    # Create new experiment with timestamp to avoid conflicts
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    new_experiment_name = f"{experiment_name}_{timestamp}"
+                    
+                    try:
+                        # Create experiment via MLflow client
+                        client = mlflow.tracking.MlflowClient()
+                        experiment = client.create_experiment(new_experiment_name)
+                        mlflow.set_experiment(new_experiment_name)
+                        logger.info(f"✅ Created new experiment: {new_experiment_name}")
+                    except Exception as create_error:
+                        logger.error(f"❌ Failed to create experiment: {create_error}")
+                        # Fallback to default experiment
+                        mlflow.set_experiment("Default")
+                        logger.info("ℹ️ Using default experiment as fallback")
                 
                 with mlflow.start_run():
                     # Log model parameters
