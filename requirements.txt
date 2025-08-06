@@ -1,10 +1,8 @@
 kafka-python
 requests
 pandas
-minio==7.1.14
 apache-airflow-providers-docker==3.7.1
 apache-airflow-providers-apache-kafka>=1.7.0
-elasticsearch
 mlflow>=2.3.0
 # pyspark>=3.2.0  # Commented out - too large, will install separately if needed
 xgboost>=2.0.0
