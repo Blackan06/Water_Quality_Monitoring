@@ -127,28 +127,58 @@ def save_models_to_mlflow(**context):
     # 5) Load scaler nếu có
     scaler = None
     if os.path.exists(scaler_path):
-        with open(scaler_path, 'rb') as f:
-            scaler = pickle.load(f)
-        logger.info("✅ Scaler loaded successfully")
+        try:
+            with open(scaler_path, 'rb') as f:
+                scaler = pickle.load(f)
+            logger.info("✅ Scaler loaded successfully")
+        except (EOFError, pickle.UnpicklingError) as e:
+            logger.error(f"❌ Failed to load scaler: {e}")
+            logger.info("ℹ️ Continuing without scaler")
     else:
         logger.warning("⚠️ Scaler file not found")
     
-    # 6) Load models
+    # 6) Load models with error handling
     models = {}
-    if os.path.exists(xgb_path):
-        with open(xgb_path, 'rb') as f:
-            models['xgb'] = pickle.load(f)
-        logger.info("✅ XGBoost model loaded")
     
-    if os.path.exists(rf_path):
-        with open(rf_path, 'rb') as f:
-            models['rf'] = pickle.load(f)
-        logger.info("✅ Random Forest model loaded")
+    # Load XGBoost model
+    if os.path.exists(xgb_path):
+        try:
+            with open(xgb_path, 'rb') as f:
+                models['xgb'] = pickle.load(f)
+            logger.info("✅ XGBoost model loaded successfully")
+        except (EOFError, pickle.UnpicklingError) as e:
+            logger.error(f"❌ Failed to load XGBoost model: {e}")
+    else:
+        logger.warning("⚠️ XGBoost model file not found")
+    
+    # Load Random Forest model (stored as Spark pipeline)
+    rf_pipeline_path = './models/rf_pipeline'
+    if os.path.exists(rf_pipeline_path):
+        try:
+            # RF được lưu như Spark pipeline, chúng ta sẽ note nó có sẵn
+            # nhưng không load vào memory vì cần Spark context
+            logger.info("✅ Random Forest pipeline found (Spark format)")
+            # Tạo placeholder để đánh dấu RF có sẵn trong metrics
+            models['rf'] = "spark_pipeline_available"
+        except Exception as e:
+            logger.error(f"❌ Failed to access Random Forest pipeline: {e}")
+    else:
+        logger.warning("⚠️ Random Forest pipeline not found")
+    
+    # Kiểm tra có ít nhất 1 model
+    if not models:
+        logger.error("❌ No models could be loaded!")
+        return "No valid models found to register"
 
-    # 7) Chọn best model theo R²
-    best_name, best_info = max(metrics.items(), key=lambda kv: kv[1].get('r2', -float('inf')))
+    # 7) Chọn best model từ các models có sẵn
+    available_metrics = {k: v for k, v in metrics.items() if k in models}
+    if not available_metrics:
+        logger.error("❌ No metrics found for available models!")
+        return "No metrics found for loaded models"
+    
+    best_name, best_info = max(available_metrics.items(), key=lambda kv: kv[1].get('r2', -float('inf')))
     best_r2 = best_info.get('r2', 0.0)
-    logger.info(f"🏆 Best model: {best_name} (R²: {best_r2:.4f})")
+    logger.info(f"🏆 Best model: {best_name} (R²: {best_r2:.4f}) from available models: {list(models.keys())}")
 
     # 8) Bắt đầu MLflow run
     with mlflow.start_run(run_name="comprehensive_ensemble_training"):
@@ -171,9 +201,9 @@ def save_models_to_mlflow(**context):
             )
             logger.info("✅ Scaler registered to MLflow")
 
-        # Log tất cả models có sẵn
+        # Log tất cả models có sẵn (chỉ log models thực sự)
         for model_name, model_obj in models.items():
-            if model_name == 'xgb':
+            if model_name == 'xgb' and model_obj != "spark_pipeline_available":
                 # Log XGBoost model
                 n_features = getattr(model_obj, "n_features_in_", 10)  # default 10 features
                 sample_input = np.zeros((1, n_features))
@@ -186,23 +216,17 @@ def save_models_to_mlflow(**context):
                 )
                 logger.info(f"✅ {model_name.upper()} model registered to MLflow")
                 
-            elif model_name == 'rf':
-                # Log Random Forest model
-                n_features = getattr(model_obj, "n_features_in_", 10)  # default 10 features
-                sample_input = np.zeros((1, n_features))
-                
-                mlflow.sklearn.log_model(
-                    model_obj,
-                    artifact_path=f"{model_name}_model",
-                    registered_model_name=f"water_quality_{model_name}_model",
-                    input_example=sample_input
-                )
-                logger.info(f"✅ {model_name.upper()} model registered to MLflow")
+            elif model_name == 'rf' and model_obj == "spark_pipeline_available":
+                # RF là Spark pipeline, không thể log vào MLflow trực tiếp
+                logger.info(f"ℹ️ {model_name.upper()} pipeline available but not logged (Spark format)")
+                # Log artifact path thay thế
+                mlflow.log_artifact('./models/rf_pipeline', artifact_path="rf_pipeline_model")
+                logger.info(f"✅ {model_name.upper()} pipeline logged as artifact")
         
         # Log best model với tên riêng
         if best_name in models:
             best_model_obj = models[best_name]
-            if best_name == 'xgb':
+            if best_name == 'xgb' and best_model_obj != "spark_pipeline_available":
                 n_features = getattr(best_model_obj, "n_features_in_", 10)
                 sample_input = np.zeros((1, n_features))
                 mlflow.xgboost.log_model(
@@ -211,16 +235,13 @@ def save_models_to_mlflow(**context):
                     registered_model_name="water_quality_best_model",
                     input_example=sample_input
                 )
-            elif best_name == 'rf':
-                n_features = getattr(best_model_obj, "n_features_in_", 10)
-                sample_input = np.zeros((1, n_features))
-                mlflow.sklearn.log_model(
-                    best_model_obj,
-                    artifact_path="best_model",
-                    registered_model_name="water_quality_best_model",
-                    input_example=sample_input
-                )
-            logger.info(f"✅ Best model ({best_name.upper()}) registered as water_quality_best_model")
+                logger.info(f"✅ Best model ({best_name.upper()}) registered as water_quality_best_model")
+            elif best_name == 'rf' and best_model_obj == "spark_pipeline_available":
+                # RF pipeline không thể register như model, chỉ log artifact
+                mlflow.log_artifact('./models/rf_pipeline', artifact_path="best_model_rf_pipeline")
+                logger.info(f"✅ Best model ({best_name.upper()}) pipeline logged as artifact")
+            else:
+                logger.warning(f"⚠️ Cannot register best model {best_name} - unsupported format")
 
         # Log toàn bộ metrics.json như artifact
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp:
