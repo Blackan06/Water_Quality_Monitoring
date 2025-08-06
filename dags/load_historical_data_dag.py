@@ -104,8 +104,8 @@ def save_models_to_mlflow(**context):
     """Save trained models to MLflow registry (with dynamic input_example and correct log_model)."""
     logger.info("Saving models to MLflow registry...")
 
-    # 1) Thiết lập MLflow tracking URI (file- or HTTP-backend)
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "file:///tmp/mlruns")
+    # 1) Thiết lập MLflow tracking URI (VPS backend)
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://77.37.44.237:5003")
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment("water_quality_models")
 

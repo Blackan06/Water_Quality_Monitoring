@@ -23,8 +23,8 @@ default_args = {
 def promote_best_model_to_production(**context):
     """Promote the best performing model to Production stage"""
     try:
-        # Thiết lập MLflow client
-        mlflow.set_tracking_uri("http://mlflow:5003")
+        # Thiết lập MLflow client (VPS)
+        mlflow.set_tracking_uri("http://77.37.44.237:5003")
         client = MlflowClient()
         
         # Tên model để promote
@@ -91,7 +91,7 @@ def promote_best_model_to_production(**context):
 def promote_scaler_to_production(**context):
     """Promote scaler to Production stage"""
     try:
-        mlflow.set_tracking_uri("http://mlflow:5003")
+        mlflow.set_tracking_uri("http://77.37.44.237:5003")
         client = MlflowClient()
         
         model_name = "water_quality_scaler"
@@ -142,7 +142,7 @@ def promote_scaler_to_production(**context):
 def verify_production_models(**context):
     """Verify that models are properly deployed in Production"""
     try:
-        mlflow.set_tracking_uri("http://mlflow:5003")
+        mlflow.set_tracking_uri("http://77.37.44.237:5003")
         client = MlflowClient()
         
         models_to_check = ["water_quality_best_model", "water_quality_scaler"]
