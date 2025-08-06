@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import logging
 import os
 os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 import mlflow
 import mlflow.sklearn
@@ -276,9 +275,11 @@ train_model_task = DockerOperator(
     docker_url='unix://var/run/docker.sock',
     network_mode='bridge',
     mount_tmp_dir=False,  # Disable automatic tmp directory mounting
-    mounts = [
-        Mount(source=os.path.join(project_root, 'models'), target='/app/models', type='bind'),
-        Mount(source=os.path.join(project_root, 'spark'), target='/app/spark', type='bind')
+    mounts=[
+        Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/models', 
+              target='/app/models', type='bind'),
+        Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/spark', 
+              target='/app/spark', type='bind')
     ],
     environment={
         'DB_HOST': '194.238.16.14',
