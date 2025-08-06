@@ -5,6 +5,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./models:/usr/local/airflow/models
+    user: root
     group_add:
       - "root"
     ports:
@@ -12,6 +13,7 @@ services:
   scheduler:
     networks:
       - bigdata-network
+    user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./models:/usr/local/airflow/models
@@ -21,6 +23,7 @@ services:
   triggerer:
     networks:
       - bigdata-network
+    user: root 
     volumes:
       - ./models:/usr/local/airflow/models
     group_add:
