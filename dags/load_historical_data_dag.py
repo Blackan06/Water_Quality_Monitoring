@@ -276,10 +276,9 @@ train_model_task = DockerOperator(
     network_mode='bridge',
     mount_tmp_dir=False,  # Disable automatic tmp directory mounting
     mounts=[
-        Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/models', 
-              target='/app/models', type='bind'),
-        Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/spark', 
-              target='/app/spark', type='bind')
+        Mount(source='/usr/local/airflow/models', target='/app/models', type='bind'),
+        Mount(source='/usr/local/airflow/spark', target='/app/spark', type='bind'),
+        Mount(source='/usr/local/airflow/data', target='/app/data', type='bind')
     ],
     environment={
         'DB_HOST': '194.238.16.14',
