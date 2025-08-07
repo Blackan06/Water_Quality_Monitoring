@@ -33,9 +33,17 @@ def notify_trigger(event, **kwargs):
     
     # Trigger tất cả downstream tasks ngay lập tức
     try:
-        # Trigger consumer task
+        # Trigger consumer task (now handles batch processing)
         consumer_result = enhanced_kafka_consumer_task(**kwargs)
         logger.info("✅ Consumer task executed successfully")
+        
+        # Get batch processing results
+        batch_size = kwargs['ti'].xcom_pull(key='batch_size', task_ids='enhanced_kafka_consumer_task')
+        processed_count = kwargs['ti'].xcom_pull(key='processed_count', task_ids='enhanced_kafka_consumer_task')
+        error_count = kwargs['ti'].xcom_pull(key='error_count', task_ids='enhanced_kafka_consumer_task')
+        
+        if batch_size:
+            logger.info(f"📊 Batch processing results: {processed_count}/{batch_size} processed, {error_count} errors")
         
         # Trigger external DAG task (chỉ trigger DAG, không gọi trực tiếp ML pipeline)
         external_result = trigger_external_dag(**kwargs)
@@ -48,10 +56,10 @@ def notify_trigger(event, **kwargs):
         raise AirflowException(f"Failed to execute downstream tasks: {str(e)}")
 
 def enhanced_kafka_consumer_task(**context):
-    """Enhanced consumer task that can access Kafka message from XCom"""
+    """Enhanced consumer task that can access Kafka message from XCom and handles batch processing"""
     from include.iot_streaming.kafka_consumer import kafka_consumer_task
     
-    logger.info("🔄 Starting enhanced Kafka consumer task...")
+    logger.info("🔄 Starting enhanced Kafka consumer task (batch processing)...")
     
     try:
         # Get message from XCom (if available from sensor)
@@ -60,8 +68,16 @@ def enhanced_kafka_consumer_task(**context):
         if kafka_message:
             logger.info(f"📥 Processing Kafka message from sensor: {kafka_message}")
         
-        # Run the original consumer task
+        # Run the original consumer task (now with batch processing)
         result = kafka_consumer_task(**context)
+        
+        # Get batch processing results
+        batch_size = context['ti'].xcom_pull(key='batch_size')
+        processed_count = context['ti'].xcom_pull(key='processed_count')
+        error_count = context['ti'].xcom_pull(key='error_count')
+        
+        if batch_size and processed_count is not None:
+            logger.info(f"📊 Batch processing completed: {processed_count}/{batch_size} processed, {error_count} errors")
         
         logger.info("✅ Enhanced Kafka consumer task completed")
         return result

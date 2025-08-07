@@ -117,12 +117,12 @@ def reset_kafka_offset(reset_to='earliest'):
 def kafka_consumer_task(**kwargs):
     """
     - Mở kết nối tới Kafka
-    - Đọc một bản ghi đầu tiên
+    - Đọc nhiều bản ghi (batch processing)
     - Lưu vào database raw_sensor_data
     - Commit offset sau khi xử lý thành công
     - Đẩy giá trị đó lên XCom
     """
-    logger.info("Kafka Consumer (single record) started…")
+    logger.info("Kafka Consumer (batch processing) started…")
 
     consumer = KafkaConsumer(
         TOPIC,
@@ -134,136 +134,137 @@ def kafka_consumer_task(**kwargs):
         value_deserializer=lambda x: loads(x.decode('utf-8'))
     )
 
-    record = None
-    message = None
+    records = []
+    messages = []
+    processed_count = 0
+    error_count = 0
     
     try:
+        # Đọc tất cả messages có sẵn trong batch
         for msg in consumer:
             record = msg.value
-            message = msg  # Lưu message để commit offset sau
-            logger.info(f"Consumed one record: {record}")
-            break
+            messages.append(msg)
+            records.append(record)
+            logger.info(f"Consumed record {len(records)}: {record}")
+            
+            # Giới hạn batch size để tránh memory issues
+            if len(records) >= 50:  # Process tối đa 50 messages mỗi batch
+                logger.info(f"Batch size limit reached ({len(records)} records)")
+                break
+                
     except Exception as e:
         logger.error(f"Error while consuming: {e}")
         consumer.close()
         return f"Error consuming: {str(e)}"
 
-    if record is None:
-        logger.warning("No record consumed within timeout.")
+    if not records:
+        logger.warning("No records consumed within timeout.")
         consumer.close()
-        return "No record consumed"
+        return "No records consumed"
     
-    # Lưu dữ liệu vào database
-    try:
-        # Parse dữ liệu từ Kafka message
-        station_id = int(record.get('station_id'))
-        measurement_time_str = record.get('measurement_time')
-        ph = record.get('ph')
-        temperature = record.get('temperature')
-        do = record.get('do')
-        
-        # Convert measurement_time string to datetime
-        if measurement_time_str:
-            # Handle different time formats
-            if measurement_time_str.endswith('Z'):
-                measurement_time_str = measurement_time_str[:-1]  # Remove 'Z'
-            try:
-                measurement_time = datetime.fromisoformat(measurement_time_str)
-            except ValueError:
-                logger.warning(f"Invalid measurement_time format: {measurement_time_str}, using current time")
+    logger.info(f"📦 Processing batch of {len(records)} messages")
+    
+    # Xử lý từng record trong batch
+    for i, (record, message) in enumerate(zip(records, messages)):
+        try:
+            # Parse dữ liệu từ Kafka message
+            station_id = int(record.get('station_id'))
+            measurement_time_str = record.get('measurement_time')
+            ph = record.get('ph')
+            temperature = record.get('temperature')
+            do = record.get('do')
+            
+            # Convert measurement_time string to datetime
+            if measurement_time_str:
+                # Handle different time formats
+                if measurement_time_str.endswith('Z'):
+                    measurement_time_str = measurement_time_str[:-1]  # Remove 'Z'
+                try:
+                    measurement_time = datetime.fromisoformat(measurement_time_str)
+                except ValueError:
+                    logger.warning(f"Invalid measurement_time format: {measurement_time_str}, using current time")
+                    measurement_time = datetime.now()
+            else:
                 measurement_time = datetime.now()
-        else:
-            measurement_time = datetime.now()
-        
-        # Validate required fields
-        missing_fields = []
-        if ph is None:
-            missing_fields.append('ph')
-        if temperature is None:
-            missing_fields.append('temperature')
-        if do is None:
-            missing_fields.append('do')
-        
-        if missing_fields:
-            logger.warning(f"Missing required fields: {missing_fields} in record: {record}")
-            # Commit offset để không đọc lại message này
-            try:
-                consumer.commit()
-                logger.info(f"✅ Committed offset for invalid message: partition {message.partition}, offset {message.offset}")
-            except Exception as commit_error:
-                logger.error(f"❌ Failed to commit offset for invalid message: {commit_error}")
             
-            consumer.close()
-            return f"Invalid data format - missing fields: {missing_fields}"
-        
-        # Tạo station_id mặc định nếu không có
-        if station_id is None:
-            station_id = "unknown_station"
-            logger.info(f"⚠️ No station_id provided, using default: {station_id}")
-        else:
-            # Đảm bảo station_id là integer
-            try:
-                station_id = int(station_id)
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid station_id format: {station_id}, using default: 0")
-        
-        # Prepare data for database
-        raw_data = {
-            'station_id': station_id,
-            'measurement_time': measurement_time,
-            'ph': float(ph),
-            'temperature': float(temperature),
-            'do': float(do)
-        }
-        
-        # Insert into raw_sensor_data
-        success = db_manager.insert_raw_data(raw_data)
-        
-        if success:
-            logger.info(f"✅ Successfully saved data to database: Station {station_id}, Time {measurement_time}")
+            # Validate required fields
+            missing_fields = []
+            if ph is None:
+                missing_fields.append('ph')
+            if temperature is None:
+                missing_fields.append('temperature')
+            if do is None:
+                missing_fields.append('do')
             
-            # Commit offset sau khi xử lý thành công
-            try:
-                consumer.commit()
-                logger.info(f"✅ Successfully committed offset for partition {message.partition}, offset {message.offset}")
-            except Exception as commit_error:
-                logger.error(f"❌ Failed to commit offset: {commit_error}")
-                # Vẫn return success vì data đã được lưu
-                # Offset sẽ được commit ở lần chạy tiếp theo
+            if missing_fields:
+                logger.warning(f"Missing required fields: {missing_fields} in record {i+1}: {record}")
+                error_count += 1
+                continue  # Skip invalid record, continue with next
             
-            # Đẩy lên XCom cho downstream task
-            if 'ti' in kwargs:
-                kwargs['ti'].xcom_push(key='consumed_data', value=record)
-                kwargs['ti'].xcom_push(key='saved_to_db', value=True)
-                kwargs['ti'].xcom_push(key='station_id', value=station_id)
-                kwargs['ti'].xcom_push(key='kafka_offset', value={
-                    'partition': message.partition,
-                    'offset': message.offset,
-                    'topic': message.topic
-                })
+            # Tạo station_id mặc định nếu không có
+            if station_id is None:
+                station_id = "unknown_station"
+                logger.info(f"⚠️ No station_id provided for record {i+1}, using default: {station_id}")
+            else:
+                # Đảm bảo station_id là integer
+                try:
+                    station_id = int(station_id)
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid station_id format for record {i+1}: {station_id}, using default: 0")
+                    station_id = 0
             
-            logger.info("Pushed record to XCom under key='consumed_data'")
-            consumer.close()
-            return f"Data saved for station {station_id}"
-        else:
-            logger.error("❌ Failed to save data to database")
-            # Không commit offset nếu lưu DB thất bại
-            consumer.close()
-            return "Failed to save data to database"
+            # Prepare data for database
+            raw_data = {
+                'station_id': station_id,
+                'measurement_time': measurement_time,
+                'ph': float(ph),
+                'temperature': float(temperature),
+                'do': float(do)
+            }
             
-    except Exception as e:
-        logger.error(f"❌ Error processing and saving data: {e}")
-        # Commit offset để không đọc lại message này
+            # Insert into raw_sensor_data
+            success = db_manager.insert_raw_data(raw_data)
+            
+            if success:
+                logger.info(f"✅ Successfully saved record {i+1} to database: Station {station_id}, Time {measurement_time}")
+                processed_count += 1
+            else:
+                logger.error(f"❌ Failed to save record {i+1} to database")
+                error_count += 1
+                
+        except Exception as e:
+            logger.error(f"❌ Error processing record {i+1}: {e}")
+            error_count += 1
+            continue
+    
+    # Commit offset cho tất cả messages đã xử lý
+    if messages:
         try:
             consumer.commit()
-            logger.info(f"✅ Committed offset after error: partition {message.partition}, offset {message.offset}")
+            logger.info(f"✅ Successfully committed offset for batch: {len(messages)} messages")
         except Exception as commit_error:
-            logger.error(f"❌ Failed to commit offset after error: {commit_error}")
+            logger.error(f"❌ Failed to commit offset: {commit_error}")
+    
+    consumer.close()
+    
+    # Đẩy thông tin batch lên XCom cho downstream task
+    if 'ti' in kwargs:
+        kwargs['ti'].xcom_push(key='batch_size', value=len(records))
+        kwargs['ti'].xcom_push(key='processed_count', value=processed_count)
+        kwargs['ti'].xcom_push(key='error_count', value=error_count)
+        kwargs['ti'].xcom_push(key='saved_to_db', value=processed_count > 0)
         
-        consumer.close()
-        return f"Error: {str(e)}"
-
-    logger.info("Kafka Consumer (single record) completed.")
+        # Lưu thông tin offset của message cuối cùng
+        if messages:
+            last_message = messages[-1]
+            kwargs['ti'].xcom_push(key='kafka_offset', value={
+                'partition': last_message.partition,
+                'offset': last_message.offset,
+                'topic': last_message.topic
+            })
+    
+    logger.info(f"📊 Batch processing completed: {processed_count} processed, {error_count} errors out of {len(records)} total")
+    return f"Batch processed: {processed_count} successful, {error_count} errors out of {len(records)} total"
 
 if __name__ == "__main__":
     kafka_consumer_task()
