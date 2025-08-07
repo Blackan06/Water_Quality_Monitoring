@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import logging
 import mlflow
 from mlflow.tracking import MlflowClient
+import time
+import requests
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -16,13 +18,46 @@ default_args = {
     'start_date': datetime(2024, 1, 1),
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    'retries': 3,
+    'retry_delay': timedelta(minutes=2),
 }
+
+def check_mlflow_connection():
+    """Check if MLflow server is accessible"""
+    try:
+        response = requests.get("http://77.37.44.237:5003/health", timeout=10)
+        if response.status_code == 200:
+            logger.info("✅ MLflow server is accessible")
+            return True
+        else:
+            logger.error(f"❌ MLflow server returned status {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Cannot connect to MLflow server: {e}")
+        return False
+
+def get_latest_model_version(client, model_name):
+    """Get the latest version of a model using new API"""
+    try:
+        # Get all versions of the model
+        versions = client.search_model_versions(f"name='{model_name}'")
+        if not versions:
+            return None
+        
+        # Sort by version number and get the latest
+        latest_version = max(versions, key=lambda v: v.version)
+        return latest_version
+    except Exception as e:
+        logger.error(f"❌ Error getting latest version for {model_name}: {e}")
+        return None
 
 def promote_best_model_to_production(**context):
     """Promote the best performing model to Production stage"""
     try:
+        # Check MLflow connection first
+        if not check_mlflow_connection():
+            return "❌ MLflow server is not accessible"
+        
         # Thiết lập MLflow client (VPS)
         mlflow.set_tracking_uri("http://77.37.44.237:5003")
         client = MlflowClient()
@@ -32,46 +67,41 @@ def promote_best_model_to_production(**context):
         
         logger.info(f"🔍 Looking for model: {model_name}")
         
-        # Lấy latest version của best model
+        # Get latest version using new API
+        latest_version = get_latest_model_version(client, model_name)
+        if not latest_version:
+            logger.error(f"❌ No versions found for model {model_name}")
+            return f"No versions found for model {model_name}"
+        
+        version = latest_version.version
+        logger.info(f"📋 Found model {model_name} version {version}")
+        
+        # Check if model is already in production (using tags instead of stages)
         try:
-            latest_versions = client.get_latest_versions(model_name, stages=["None"])
-            if not latest_versions:
-                logger.error(f"❌ No versions found for model {model_name}")
-                return f"No versions found for model {model_name}"
+            # Get model version details
+            model_version = client.get_model_version(model_name, version)
             
-            latest_version = latest_versions[0]
-            version = latest_version.version
+            # Check if this version is already marked as production
+            production_tag = None
+            for tag in model_version.tags:
+                if tag.key == "stage" and tag.value == "Production":
+                    production_tag = tag
+                    break
             
-            logger.info(f"📋 Found model {model_name} version {version}")
+            if production_tag:
+                logger.info(f"ℹ️ Model {model_name} v{version} is already in Production")
+                return f"✅ Model {model_name} v{version} already in Production"
             
-            # Kiểm tra xem có version nào đang ở Production không
-            try:
-                production_versions = client.get_latest_versions(model_name, stages=["Production"])
-                if production_versions:
-                    old_version = production_versions[0].version
-                    # Archive old production version
-                    client.transition_model_version_stage(
-                        name=model_name,
-                        version=old_version,
-                        stage="Archived",
-                        archive_existing_versions=False
-                    )
-                    logger.info(f"📦 Archived old production version {old_version}")
-            except Exception as e:
-                logger.info(f"ℹ️ No existing production version to archive: {e}")
-            
-            # Promote latest version to Production
-            client.transition_model_version_stage(
+            # Mark this version as production
+            client.set_registered_model_alias(
                 name=model_name,
-                version=version,
-                stage="Production",
-                archive_existing_versions=False
+                alias="Production",
+                version=version
             )
             
             logger.info(f"🚀 Successfully promoted {model_name} v{version} to Production!")
             
             # Log model details
-            model_version = client.get_model_version(model_name, version)
             logger.info(f"📊 Production Model Details:")
             logger.info(f"   Name: {model_name}")
             logger.info(f"   Version: {version}")
@@ -81,8 +111,8 @@ def promote_best_model_to_production(**context):
             return f"✅ Model {model_name} v{version} promoted to Production"
             
         except Exception as e:
-            logger.error(f"❌ Error accessing model {model_name}: {e}")
-            return f"Error accessing model: {str(e)}"
+            logger.error(f"❌ Error promoting model {model_name}: {e}")
+            return f"Error promoting model: {str(e)}"
             
     except Exception as e:
         logger.error(f"❌ Error in promote_best_model_to_production: {e}")
@@ -91,6 +121,10 @@ def promote_best_model_to_production(**context):
 def promote_scaler_to_production(**context):
     """Promote scaler to Production stage"""
     try:
+        # Check MLflow connection first
+        if not check_mlflow_connection():
+            return "❌ MLflow server is not accessible"
+        
         mlflow.set_tracking_uri("http://77.37.44.237:5003")
         client = MlflowClient()
         
@@ -98,42 +132,43 @@ def promote_scaler_to_production(**context):
         
         logger.info(f"🔍 Looking for scaler: {model_name}")
         
+        # Get latest version using new API
+        latest_version = get_latest_model_version(client, model_name)
+        if not latest_version:
+            logger.warning(f"⚠️ No versions found for scaler {model_name}")
+            return f"No versions found for scaler {model_name}"
+        
+        version = latest_version.version
+        logger.info(f"📋 Found scaler {model_name} version {version}")
+        
         try:
-            latest_versions = client.get_latest_versions(model_name, stages=["None"])
-            if not latest_versions:
-                logger.warning(f"⚠️ No versions found for scaler {model_name}")
-                return f"No versions found for scaler {model_name}"
+            # Get model version details
+            model_version = client.get_model_version(model_name, version)
             
-            latest_version = latest_versions[0]
-            version = latest_version.version
+            # Check if this version is already marked as production
+            production_tag = None
+            for tag in model_version.tags:
+                if tag.key == "stage" and tag.value == "Production":
+                    production_tag = tag
+                    break
             
-            # Archive old production scaler if exists
-            try:
-                production_versions = client.get_latest_versions(model_name, stages=["Production"])
-                if production_versions:
-                    old_version = production_versions[0].version
-                    client.transition_model_version_stage(
-                        name=model_name,
-                        version=old_version,
-                        stage="Archived"
-                    )
-                    logger.info(f"📦 Archived old production scaler v{old_version}")
-            except Exception as e:
-                logger.info(f"ℹ️ No existing production scaler to archive: {e}")
+            if production_tag:
+                logger.info(f"ℹ️ Scaler {model_name} v{version} is already in Production")
+                return f"✅ Scaler {model_name} v{version} already in Production"
             
-            # Promote latest scaler to Production
-            client.transition_model_version_stage(
+            # Mark this version as production
+            client.set_registered_model_alias(
                 name=model_name,
-                version=version,
-                stage="Production"
+                alias="Production",
+                version=version
             )
             
             logger.info(f"🚀 Successfully promoted scaler v{version} to Production!")
             return f"✅ Scaler v{version} promoted to Production"
             
         except Exception as e:
-            logger.error(f"❌ Error accessing scaler {model_name}: {e}")
-            return f"Error accessing scaler: {str(e)}"
+            logger.error(f"❌ Error promoting scaler {model_name}: {e}")
+            return f"Error promoting scaler: {str(e)}"
             
     except Exception as e:
         logger.error(f"❌ Error in promote_scaler_to_production: {e}")
@@ -142,6 +177,10 @@ def promote_scaler_to_production(**context):
 def verify_production_models(**context):
     """Verify that models are properly deployed in Production"""
     try:
+        # Check MLflow connection first
+        if not check_mlflow_connection():
+            return "❌ MLflow server is not accessible"
+        
         mlflow.set_tracking_uri("http://77.37.44.237:5003")
         client = MlflowClient()
         
@@ -150,13 +189,14 @@ def verify_production_models(**context):
         
         for model_name in models_to_check:
             try:
-                production_versions = client.get_latest_versions(model_name, stages=["Production"])
-                if production_versions:
-                    version = production_versions[0].version
-                    production_models.append(f"{model_name} v{version}")
-                    logger.info(f"✅ {model_name} v{version} is in Production")
-                else:
-                    logger.warning(f"⚠️ {model_name} not found in Production")
+                # Check if model has Production alias
+                try:
+                    production_version = client.get_model_version_by_alias(model_name, "Production")
+                    production_models.append(f"{model_name} v{production_version.version}")
+                    logger.info(f"✅ {model_name} v{production_version.version} is in Production")
+                except Exception as e:
+                    logger.warning(f"⚠️ {model_name} not found in Production: {e}")
+                    
             except Exception as e:
                 logger.error(f"❌ Error checking {model_name}: {e}")
         
@@ -176,7 +216,7 @@ def verify_production_models(**context):
 dag = DAG(
     'promote_models_to_production',
     default_args=default_args,
-    description='Promote trained models to Production stage in MLflow',
+    description='Promote trained models to Production stage in MLflow using new API',
     schedule_interval=None,  # Manual trigger
     start_date=datetime(2024, 1, 1),
     catchup=False,
