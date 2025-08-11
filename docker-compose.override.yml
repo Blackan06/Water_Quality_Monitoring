@@ -7,9 +7,7 @@ services:
       - ./models:/usr/local/airflow/models
     user: root
     group_add:
-      - "root"
-    ports:
-      - "8089:8080"  # Airflow webserver
+      - "root"  # Airflow webserver
   scheduler:
     networks:
       - bigdata-network
