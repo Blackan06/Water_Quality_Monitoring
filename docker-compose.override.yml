@@ -7,7 +7,15 @@ services:
       - ./models:/usr/local/airflow/models
     user: root
     group_add:
-      - "root"  # Airflow webserver
+      - "root"
+    environment:
+      - AIRFLOW__WEBSERVER__WORKERS=2  # Cấu hình số lượng workers cho webserver
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=False  # Tùy chọn khác trong Airflow (ví dụ)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'  # Giới hạn CPU cho webserver
+          memory: 2G   # Giới hạn bộ nhớ cho webserver
   scheduler:
     networks:
       - bigdata-network
@@ -17,6 +25,13 @@ services:
       - ./models:/usr/local/airflow/models
     group_add:
       - "root"
+    environment:
+      - AIRFLOW__SCHEDULER__DAG_CONCURRENCY=2  # Giới hạn số lượng task đồng thời trong scheduler
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'  # Giới hạn CPU cho scheduler
+          memory: 2G   # Giới hạn bộ nhớ cho scheduler
 
   triggerer:
     networks:
