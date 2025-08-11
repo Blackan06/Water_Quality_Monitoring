@@ -94,14 +94,14 @@ def process_streaming_data(**context):
         return f"Error: {e}"
 
 def predict_existing_stations(**context):
-    """Orchestrate predictions for existing stations - lấy records is_processed=FALSE, predict, update"""
-    logger.info("Starting prediction orchestration")
+    """Orchestrate predictions for existing stations - xử lý batch data từ database"""
+    logger.info("Starting batch prediction orchestration")
     
     try:
         from include.iot_streaming.prediction_service import PredictionService
         from include.iot_streaming.database_manager import db_manager
         
-        # Lấy stations có unprocessed data
+        # Lấy stations có unprocessed data từ database
         conn = db_manager.get_connection()
         if not conn:
             logger.error("Cannot connect to database")
@@ -120,11 +120,13 @@ def predict_existing_stations(**context):
         
         if not stations_with_data:
             logger.info("No stations with unprocessed data found")
+            context['task_instance'].xcom_push(key='prediction_results', value=[])
+            context['task_instance'].xcom_push(key='processed_station_count', value=0)
             return "No stations with unprocessed data found"
         
         logger.info(f"Found {len(stations_with_data)} stations with unprocessed data")
         
-        # Gọi prediction service
+        # Gọi prediction service cho batch stations
         prediction_service = PredictionService()
         prediction_results = prediction_service.process_stations_predictions(stations_with_data)
         
@@ -150,15 +152,16 @@ def predict_existing_stations(**context):
             prediction_results = []
         
         context['task_instance'].xcom_push(key='prediction_results', value=prediction_results)
+        context['task_instance'].xcom_push(key='processed_station_count', value=len(stations_with_data))
         
         successful_count = len([r for r in prediction_results if r and r.get('success')])
         total_count = len(prediction_results) if prediction_results else 0
-        logger.info(f"Predictions completed: {successful_count}/{total_count} successful")
+        logger.info(f"Batch predictions completed: {successful_count}/{total_count} successful for {len(stations_with_data)} stations")
         
-        return f"✅ Predictions completed: {successful_count}/{total_count} successful, updated {len(stations_with_data)} stations"
+        return f"✅ Batch predictions completed: {successful_count}/{total_count} successful for {len(stations_with_data)} stations"
         
     except Exception as e:
-        logger.error(f"Error orchestrating predictions: {e}")
+        logger.error(f"Error orchestrating batch predictions: {e}")
         return f"Error: {e}"
 
 def update_database_metrics(**context):
@@ -179,14 +182,17 @@ def update_database_metrics(**context):
         return f"Error: {e}"
 
 def generate_alerts_and_notifications(**context):
-    """Orchestrate alerts generation and push notifications"""
-    logger.info("Generating alerts and sending push notifications")
+    """Orchestrate alerts generation and push notifications cho batch stations"""
+    logger.info("Generating alerts and sending push notifications for batch stations")
     try:
         from include.iot_streaming.prediction_service import PredictionService
         
         # Lấy kết quả predictions
         prediction_results = context['task_instance'].xcom_pull(
             task_ids='predict_existing_stations', key='prediction_results'
+        )
+        processed_station_count = context['task_instance'].xcom_pull(
+            task_ids='predict_existing_stations', key='processed_station_count'
         )
         
         if not prediction_results:
@@ -199,8 +205,10 @@ def generate_alerts_and_notifications(**context):
         prediction_service = PredictionService()
         alerts_result = prediction_service.generate_alerts(prediction_results)
         
-        # Gửi push notifications cho từng station
+        # Gửi push notifications cho từng station trong batch
         notifications_sent = 0
+        successful_notifications = []
+        failed_notifications = []
         
         for prediction in prediction_results:
             if not prediction or not prediction.get('success'):
@@ -257,25 +265,33 @@ def generate_alerts_and_notifications(**context):
                 status = "good" if wqi_prediction > 50 else "danger" 
                 
                 # Gửi thông báo
-                account_id = 3  # Sử dụng station_id làm account_id
+                account_id = station_id  # Sử dụng station_id làm account_id
                 message = analysis
                 
                 if push_notification(account_id, "Kết quả WQI", message, status):
                     notifications_sent += 1
+                    successful_notifications.append(station_id)
                     logger.info(f"✅ Notification sent for station {station_id}: WQI={wqi_prediction}, Status={status}")
                 else:
+                    failed_notifications.append(station_id)
                     logger.warning(f"⚠️ Failed to send notification for station {station_id}")
             else:
                 logger.error(f"❌ Cannot connect to database for station {station_id}")
+                failed_notifications.append(station_id)
         
+        # Lưu kết quả notifications
         context['task_instance'].xcom_push(key='alerts_result', value=alerts_result)
         context['task_instance'].xcom_push(key='notifications_sent', value=notifications_sent)
+        context['task_instance'].xcom_push(key='successful_notifications', value=successful_notifications)
+        context['task_instance'].xcom_push(key='failed_notifications', value=failed_notifications)
         
-        logger.info(f"✅ Alerts generated and {notifications_sent} notifications sent successfully")
-        return f"✅ Alerts generated: {alerts_result}, Notifications sent: {notifications_sent}"
+        logger.info(f"✅ Batch alerts generated and {notifications_sent} notifications sent successfully")
+        logger.info(f"📊 Notification summary: {len(successful_notifications)} successful, {len(failed_notifications)} failed")
+        
+        return f"✅ Batch alerts generated: {alerts_result}, Notifications sent: {notifications_sent}/{processed_station_count or 0} stations"
                         
     except Exception as e:
-        logger.error(f"Error generating alerts and notifications: {e}")
+        logger.error(f"Error generating batch alerts and notifications: {e}")
         return f"Error: {e}"
 
 def mark_records_as_processed(**context):
@@ -304,8 +320,8 @@ def mark_records_as_processed(**context):
         return f"Error: {e}"
 
 def summarize_pipeline_execution(**context):
-    """Orchestrate pipeline summary"""
-    logger.info("Summarizing pipeline execution")
+    """Orchestrate pipeline summary cho batch processing từ database"""
+    logger.info("Summarizing batch pipeline execution")
     
     try:
         from include.iot_streaming.pipeline_processor import PipelineProcessor
@@ -323,6 +339,15 @@ def summarize_pipeline_execution(**context):
         notifications_sent = context['task_instance'].xcom_pull(
             task_ids='generate_alerts_and_notifications', key='notifications_sent'
         )
+        processed_station_count = context['task_instance'].xcom_pull(
+            task_ids='predict_existing_stations', key='processed_station_count'
+        )
+        successful_notifications = context['task_instance'].xcom_pull(
+            task_ids='generate_alerts_and_notifications', key='successful_notifications'
+        )
+        failed_notifications = context['task_instance'].xcom_pull(
+            task_ids='generate_alerts_and_notifications', key='failed_notifications'
+        )
         
         # Handle None values from XCom
         if prediction_results is None:
@@ -333,23 +358,50 @@ def summarize_pipeline_execution(**context):
             processed_count = 0
         if notifications_sent is None:
             notifications_sent = 0
+        if processed_station_count is None:
+            processed_station_count = 0
+        if successful_notifications is None:
+            successful_notifications = []
+        if failed_notifications is None:
+            failed_notifications = []
+        
+        # Tạo summary chi tiết cho batch processing từ database
+        batch_summary = {
+            'database_batch': {
+                'total_stations_processed': processed_station_count,
+                'successful_predictions': len([r for r in prediction_results if r and r.get('success')]),
+                'total_predictions': len(prediction_results) if prediction_results else 0
+            },
+            'predictions': {
+                'total_stations': processed_station_count,
+                'successful_predictions': len([r for r in prediction_results if r and r.get('success')]),
+                'total_predictions': len(prediction_results) if prediction_results else 0
+            },
+            'notifications': {
+                'sent': notifications_sent,
+                'successful': len(successful_notifications),
+                'failed': len(failed_notifications),
+                'successful_stations': successful_notifications,
+                'failed_stations': failed_notifications
+            },
+            'alerts': alerts_result,
+            'processed_records': processed_count
+        }
         
         # Gọi summary service
         pipeline_processor = PipelineProcessor()
-        summary = pipeline_processor.create_summary({
-            'prediction_results': prediction_results,
-            'alerts_result': alerts_result,
-            'processed_count': processed_count,
-            'notifications_sent': notifications_sent
-        })
+        summary = pipeline_processor.create_summary(batch_summary)
         
         context['task_instance'].xcom_push(key='pipeline_summary', value=summary)
+        context['task_instance'].xcom_push(key='batch_summary', value=batch_summary)
         
-        logger.info("Pipeline summary created successfully")
-        return f"Pipeline summary: {summary}"
+        logger.info("Batch pipeline summary created successfully")
+        logger.info(f"📊 Batch Summary: {processed_station_count} stations processed, {notifications_sent} notifications sent")
+        
+        return f"Batch pipeline summary: {summary}"
         
     except Exception as e:
-        logger.error(f"Error summarizing pipeline: {e}")
+        logger.error(f"Error summarizing batch pipeline: {e}")
         return f"Error: {e}"
 
 def push_notification(account_id, title, message, status):
