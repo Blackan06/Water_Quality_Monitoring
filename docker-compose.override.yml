@@ -8,6 +8,8 @@ services:
     user: root
     group_add:
       - "root"
+    environment:
+      - AIRFLOW_DATABASE_SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres/airflow
 
   scheduler:
     networks:
@@ -18,6 +20,8 @@ services:
       - ./models:/usr/local/airflow/models
     group_add:
       - "root"
+    environment:
+      - AIRFLOW_DATABASE_SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres/airflow
 
 
   triggerer:
@@ -28,6 +32,9 @@ services:
       - ./models:/usr/local/airflow/models
     group_add:
       - "root"
+    environment:
+      - AIRFLOW_DATABASE_SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres/airflow
+ 
 
 
 
