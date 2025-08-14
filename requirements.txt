@@ -14,3 +14,4 @@ pyyaml>=6.0.1
 scikit-learn>=1.3.0
 psutil>=5.9.0
 openai>=1.0.0
+apache-airflow-providers-postgres
