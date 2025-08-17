@@ -1,5 +1,7 @@
 services:
-  webserver:
+  api-server:
+    ports:
+      - "127.0.0.1:8089:8080"
     networks:
       - bigdata-network
     volumes:
@@ -9,7 +11,13 @@ services:
     group_add:
       - "root"
     environment:
-      - AIRFLOW_DATABASE_SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres/airflow
+      - AIRFLOW__WEBSERVER__WORKERS=2
+      - AIRFLOW__WEBSERVER__WORKER_CLASS=gthread
+      - AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT=900
+      - AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT=900
+      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=900
+      - AIRFLOW__CORE__STORE_SERIALIZED_DAGS=True
+      - AIRFLOW__CORE__MIN_SERIALIZED_DAG_UPDATE_INTERVAL=30
 
   scheduler:
     networks:
@@ -21,7 +29,10 @@ services:
     group_add:
       - "root"
     environment:
-      - AIRFLOW_DATABASE_SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__LAZY_LOAD_PLUGINS=True
+      - AIRFLOW__CORE__STORE_SERIALIZED_DAGS=True
+      - AIRFLOW__CORE__MIN_SERIALIZED_DAG_UPDATE_INTERVAL=30
 
 
   triggerer:
@@ -33,9 +44,7 @@ services:
     group_add:
       - "root"
     environment:
-      - AIRFLOW_DATABASE_SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres/airflow
- 
-
+      - PYTHONASYNCIODEBUG=1
 
 
   # Kafka Zookeeper
