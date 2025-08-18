@@ -376,9 +376,9 @@ def load_historical_data_and_train_ensemble() :
         network_mode='bridge',
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
         mounts=[
-            Mount(source=os.getenv('PROJECT_ROOT', 'D:\WQI\Water_Quality_Monitoring') + '/models', 
+            Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/models', 
                 target='/app/models', type='bind'),
-            Mount(source=os.getenv('PROJECT_ROOT', 'D:\WQI\Water_Quality_Monitoring') + '/spark', 
+            Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/spark', 
                 target='/app/spark', type='bind')
         ],
         environment={
