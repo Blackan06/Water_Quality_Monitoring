@@ -18,53 +18,6 @@ airflow:
   config:
     webserver:
       enable_proxy_fix: true
-      workers: 2                           # Tối ưu cho 4 CPU cores
-      worker_class: sync                   # Ổn định hơn gthread
-      worker_timeout: 300                  # 5 phút timeout
-      worker_connections: 1000             # Giảm connections
-      web_server_master_timeout: 600       # 10 phút master timeout
-      web_server_worker_timeout: 300       # 5 phút worker timeout
-      worker_refresh_batch_size: 1         # Refresh từng worker một
-      worker_refresh_interval: 30          # Refresh mỗi 30s
-      reload_on_plugin_change: false       # Không auto reload
-      secret_key: "your-secret-key-here"   # Thay bằng secret key thực tế
-      expose_config: true                  # Cho phép xem config
-      update_fab_perms: true               # Update permissions
-      warn_deployment_exposure: false      # Tắt cảnh báo deployment
-      
-    # ============= CORE CONFIGURATION =============
-    core:
-      # Performance tuning
-      parallelism: 16                      # Tổng task parallel (thay vì 32 mặc định)
-      max_active_tasks_per_dag: 8          # Max tasks per DAG
-      max_active_runs_per_dag: 1           # Chỉ 1 run active per DAG
-      dagbag_import_timeout: 900           # 15 phút import timeout
-      store_serialized_dags: true          # Serialize DAGs
-      min_serialized_dag_update_interval: 30  # Update interval
-      load_examples: false                 # Không load example DAGs
-      lazy_load_plugins: true              # Lazy load plugins
-      check_slas: false                    # Tắt SLA check để giảm tải
-      
-      # Executor settings
-      executor: LocalExecutor              # Sử dụng LocalExecutor
-      sql_alchemy_pool_enabled: true
-      sql_alchemy_pool_size: 5
-      sql_alchemy_max_overflow: 10
-      sql_alchemy_pool_recycle: 3600
-      sql_alchemy_pool_pre_ping: true
-      
-    # ============= SCHEDULER CONFIGURATION =============
-    scheduler:
-      catchup_by_default: false            # Không catchup các run cũ
-      max_threads: 2                       # Giảm threads
-      processor_poll_interval: 1           # Poll interval
-      dag_dir_list_interval: 300           # 5 phút scan DAG folder
-      parsing_processes: 2                 # Parsing processes
-      max_dagruns_to_create_per_loop: 10   # Giảm DAG runs tạo mỗi loop
-      max_dagruns_per_loop_to_schedule: 20 # Giảm scheduling per loop
-      use_row_level_locking: true          # Row level locking
-      orphaned_tasks_check_interval: 300   # Check orphaned tasks mỗi 5 phút
-      child_process_log_directory: "/tmp/airflow_logs"
 
     api:
       auth_backends: airflow.api.auth.backend.basic_auth

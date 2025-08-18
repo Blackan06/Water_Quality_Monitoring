@@ -1,3 +1,0 @@
-# Spark-specific requirements (install separately if needed)
-pyspark>=3.2.0
-tensorflow 

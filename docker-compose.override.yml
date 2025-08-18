@@ -1,7 +1,5 @@
 services:
   api-server:
-    ports:
-      - "8089:8080"
     networks:
       - bigdata-network
     volumes:
@@ -11,13 +9,14 @@ services:
     group_add:
       - "root"
     environment:
-      - AIRFLOW__WEBSERVER__WORKERS=2
+      - AIRFLOW__WEBSERVER__WORKERS=1
       - AIRFLOW__WEBSERVER__WORKER_CLASS=gthread
-      - AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT=900
-      - AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT=900
-      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=900
+      - AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT=3000
+      - AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT=3000
+      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=6000
       - AIRFLOW__CORE__STORE_SERIALIZED_DAGS=True
       - AIRFLOW__CORE__MIN_SERIALIZED_DAG_UPDATE_INTERVAL=30
+
 
   scheduler:
     networks:
