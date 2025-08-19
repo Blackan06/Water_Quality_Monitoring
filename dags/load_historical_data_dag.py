@@ -389,7 +389,9 @@ def load_historical_data_and_train_ensemble() :
             'DB_PASSWORD': 'postgres1234',
             'DB_SCHEMA': 'public',
             'OUTPUT_MODEL_DIR': '/app/models',
-            'MLFLOW_TRACKING_URI': 'http://77.37.44.237:5003'
+            'MLFLOW_TRACKING_URI': 'http://77.37.44.237:5003',
+            # Force Spark to use only 1 core and 1G memory for this job
+            'PYSPARK_SUBMIT_ARGS': '--master local[1] --conf spark.executor.cores=1 --conf spark.cores.max=1 --conf spark.driver.memory=1g --conf spark.executor.memory=1g pyspark-shell'
         },
         command='python /app/spark/spark_jobs/train_ensemble_model.py',
     )

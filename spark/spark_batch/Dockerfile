@@ -27,6 +27,9 @@ RUN mkdir -p models && chown 1001:1001 models
 USER 1001
 
 CMD ["spark-submit", \
-     "--master","local[*]", \
+     "--master","local[1]", \
+     "--conf","spark.driver.memory=1g", \
+     "--conf","spark.executor.memory=1g", \
+     "--conf","spark.memory.fraction=0.6", \
      "--conf","spark.jars=/opt/bitnami/spark/jars/postgresql-42.6.0.jar,/opt/bitnami/spark/jars/xgboost4j_2.12-1.6.2.jar,/opt/bitnami/spark/jars/xgboost4j-spark_2.12-1.6.2.jar", \
      "spark_job.py"]
