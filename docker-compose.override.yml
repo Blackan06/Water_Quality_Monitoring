@@ -53,13 +53,44 @@ services:
       - "8085:8085"
     environment:
       KAFKA_CLUSTERS_0_NAME: local-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: 77.37.44.237:9092
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_UI_AUTH_TYPE: BASIC
       AUTH_ENABLED: "true"                # ← turn on auth module
       AUTH_TYPE: "LOGIN_FORM"             # ← basic login form
       SPRING_SECURITY_USER_NAME: admin
       SPRING_SECURITY_USER_PASSWORD: admin1234
       SERVER_PORT: "8085"
+    networks:
+      - bigdata-network
+  # Apache Kafka (single-node, KRaft mode)
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:19092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      # Lightweight resource settings
+      - KAFKA_HEAP_OPTS=-Xms512m -Xmx512m
+      - KAFKA_CFG_NUM_NETWORK_THREADS=2
+      - KAFKA_CFG_NUM_IO_THREADS=2
+      - KAFKA_CFG_NUM_PARTITIONS=1
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_CFG_LOG_CLEANER_THREADS=1
+      - KAFKA_CFG_BACKGROUND_THREADS=1
+    ports:
+      - "19092:19092"
+    volumes:
+      - kafka_data:/bitnami/kafka
     networks:
       - bigdata-network
   # Spark Master and Worker Nodes
@@ -165,6 +196,7 @@ volumes:
   mlruns:
   mlartifacts:
   grafana_data:
+  kafka_data:
 
 
 
