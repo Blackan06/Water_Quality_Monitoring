@@ -4,12 +4,12 @@ import logging
 import requests
 import os
 from openai import OpenAI
+from airflow.models import Variable
 from airflow.decorators import dag, task
 from pendulum import datetime
 
-from airflow.models import Variable
 
-openai_key = Variable.get("openai_api_key")
+openai_key = os.getenv("OPENAI_API_KEY") or Variable.get("openai_api_key", default_var=None)
 # Cấu hình logging
 logger = logging.getLogger(__name__)
 
@@ -25,14 +25,7 @@ default_args = {
 }
 
 # Định nghĩa DAG
-@dag(
-    'streaming_data_processor',
-    default_args=default_args,
-    description='Orchestration pipeline for streaming water quality data processing',
-    catchup=False,
-    tags=['water-quality', 'streaming', 'orchestration', 'postgresql']
-)
-
+ 
 # ============================================================================
 # TASK FUNCTIONS - CHỈ ORCHESTRATION, KHÔNG BUSINESS LOGIC
 # ============================================================================
@@ -402,6 +395,13 @@ def analyze_water_quality(wqi, ph, do, temperature):
         logger.error(f"Error analyzing water quality: {e}")
         return f"WQI tháng sau: {wqi}. Không thể phân tích chi tiết do lỗi hệ thống."
 
+@dag(
+    'streaming_data_processor',
+    default_args=default_args,
+    description='Orchestration pipeline for streaming water quality data processing',
+    catchup=False,
+    tags=['water-quality', 'streaming', 'orchestration', 'postgresql']
+)
 def streaming_data_processor():
 
     # ============================================================================
@@ -412,7 +412,6 @@ def streaming_data_processor():
     initialize_db_task = PythonOperator(
         task_id='initialize_database_connection',
         python_callable=initialize_database_connection,
-        dag=dag
     )
 
     # Task để xử lý streaming data (đã bỏ, chuyển logic vào predict_existing_stations)
@@ -421,35 +420,30 @@ def streaming_data_processor():
     predict_existing_task = PythonOperator(
         task_id='predict_existing_stations',
         python_callable=predict_existing_stations,
-        dag=dag
     )
 
     # Task để cập nhật database metrics
     update_metrics_task = PythonOperator(
         task_id='update_database_metrics',
         python_callable=update_database_metrics,
-        dag=dag
     )
 
     # Task để tạo alerts và notifications
     alerts_task = PythonOperator(
         task_id='generate_alerts_and_notifications',
         python_callable=generate_alerts_and_notifications,
-        dag=dag
     )
 
     # Task để mark records as processed
     mark_processed_task = PythonOperator(
         task_id='mark_records_as_processed',
         python_callable=mark_records_as_processed,
-        dag=dag
     )
 
     # Task để tóm tắt pipeline execution
     summarize_task = PythonOperator(
         task_id='summarize_pipeline_execution',
         python_callable=summarize_pipeline_execution,
-        dag=dag
     )
 
     # ============================================================================

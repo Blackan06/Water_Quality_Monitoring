@@ -156,7 +156,7 @@ def streaming_process_dag():
         task_id='wait_for_kafka',
         kafka_config_id='kafka_default',
         topics=['water-quality-data'],
-        apply_function='streaming_process_dag.always_true',
+        apply_function='include.iot_streaming.kafka_handlers.always_true',
         event_triggered_function=notify_trigger,
         poll_timeout=1,
         poll_interval=10,

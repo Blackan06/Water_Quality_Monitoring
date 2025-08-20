@@ -3,7 +3,7 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 from datetime import datetime, timedelta
 from airflow.models import Variable
-
+from airflow.decorators import dag
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
@@ -14,7 +14,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5)
 }
 
-dag = DAG(
+@dag(
     'water_quality_processing',
     default_args=default_args,
     description='Water Quality Monitoring Pipeline',
@@ -44,30 +44,31 @@ common_op_kwargs = {
     'dag': dag
 }
 
+def water_quality_processing():
+    load_data = DockerOperator(
+        task_id='load_data',
+        command='python /app/spark_jobs/load_data.py',
+        **common_op_kwargs
+    )
 
-load_data = DockerOperator(
-    task_id='load_data',
-    command='python /app/spark_jobs/load_data.py',
-    **common_op_kwargs
-)
+    preprocess_data = DockerOperator(
+        task_id='preprocess_data',
+        command='python /app/spark_jobs/preprocess_data.py',
+        **common_op_kwargs
+    )
 
-preprocess_data = DockerOperator(
-    task_id='preprocess_data',
-    command='python /app/spark_jobs/preprocess_data.py',
-    **common_op_kwargs
-)
+    train_model = DockerOperator(
+        task_id='train_model',
+        command='python /app/spark_jobs/train_model.py',
+        **common_op_kwargs
+    )
 
-train_model = DockerOperator(
-    task_id='train_model',
-    command='python /app/spark_jobs/train_model.py',
-    **common_op_kwargs
-)
-
-save_results = DockerOperator(
-    task_id='save_results',
-    command='python /app/spark_jobs/save_results.py',
-    **common_op_kwargs
-)
+    save_results = DockerOperator(
+        task_id='save_results',
+        command='python /app/spark_jobs/save_results.py',
+        **common_op_kwargs
+    )
 
 
-load_data >> preprocess_data >> train_model >> save_results
+    load_data >> preprocess_data >> train_model >> save_results
+water_quality_processing()

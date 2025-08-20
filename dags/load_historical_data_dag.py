@@ -10,10 +10,12 @@ from pendulum import datetime
 import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
+import mlflow.pyfunc
 import tempfile
 import pickle
 import json
 import numpy as np
+import pandas as pd
 
 # Cấu hình logging
 logging.basicConfig(
@@ -220,12 +222,55 @@ def save_models_to_mlflow(**context):
 
         # Log scaler (nếu có)
         if scaler is not None:
-            mlflow.sklearn.log_model(
-                scaler,
-                artifact_path="scaler_model",
-                registered_model_name="water_quality_scaler"
+            # Chuẩn bị input_example và signature cho pyfunc wrapper
+            try:
+                from mlflow.models import infer_signature
+            except Exception:
+                infer_signature = None
+
+            # Xác định số features hợp lý
+            n_features_for_examples = None
+            if hasattr(scaler, "n_features_in_") and isinstance(getattr(scaler, "n_features_in_", None), (int, np.integer)):
+                n_features_for_examples = int(scaler.n_features_in_)
+            elif "xgb" in models and hasattr(models.get("xgb"), "n_features_in_"):
+                n_features_for_examples = int(getattr(models.get("xgb"), "n_features_in_", 10))
+            else:
+                n_features_for_examples = 10
+
+            column_names = [f"f{i}" for i in range(n_features_for_examples)]
+            scaler_input_df = pd.DataFrame(np.zeros((1, n_features_for_examples)), columns=column_names)
+            scaler_signature = None
+            try:
+                if infer_signature is not None:
+                    transformed_output = scaler.transform(scaler_input_df.values)
+                    scaler_signature = infer_signature(scaler_input_df, transformed_output)
+            except Exception as sig_err:
+                logger.warning(f"Could not infer scaler signature automatically: {sig_err}")
+
+            class _ScalerPyFuncModel(mlflow.pyfunc.PythonModel):
+                def __init__(self, fitted_scaler):
+                    self._scaler = fitted_scaler
+
+                def predict(self, context, model_input):
+                    try:
+                        if isinstance(model_input, pd.DataFrame):
+                            input_array = model_input.values
+                        elif isinstance(model_input, np.ndarray):
+                            input_array = model_input
+                        else:
+                            input_array = np.asarray(model_input)
+                        return self._scaler.transform(input_array)
+                    except Exception as e:
+                        raise e
+
+            mlflow.pyfunc.log_model(
+                python_model=_ScalerPyFuncModel(scaler),
+                name="scaler_model",
+                registered_model_name="water_quality_scaler",
+                input_example=scaler_input_df,
+                signature=scaler_signature
             )
-            logger.info("✅ Scaler registered to MLflow")
+            logger.info("✅ Scaler registered to MLflow with pyfunc wrapper")
 
         # Log tất cả models có sẵn (chỉ log models thực sự)
         for model_name, model_obj in models.items():
@@ -236,7 +281,7 @@ def save_models_to_mlflow(**context):
                 
                 mlflow.xgboost.log_model(
                     model_obj,
-                    artifact_path=f"{model_name}_model",
+                    name=f"{model_name}_model",
                     registered_model_name=f"water_quality_{model_name}_model",
                     input_example=sample_input
                 )
@@ -257,7 +302,7 @@ def save_models_to_mlflow(**context):
                 sample_input = np.zeros((1, n_features))
                 mlflow.xgboost.log_model(
                     best_model_obj,
-                    artifact_path="best_model",
+                    name="best_model",
                     registered_model_name="water_quality_best_model",
                     input_example=sample_input
                 )

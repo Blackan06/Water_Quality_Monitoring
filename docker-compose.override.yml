@@ -16,6 +16,9 @@ services:
       - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=6000
       - AIRFLOW__CORE__STORE_SERIALIZED_DAGS=True
       - AIRFLOW__CORE__MIN_SERIALIZED_DAG_UPDATE_INTERVAL=30
+      - RABBITMQ_MGMT_URL=http://rabbitmq:15672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=admin1234
 
 
   scheduler:
@@ -32,6 +35,9 @@ services:
       - AIRFLOW__CORE__LAZY_LOAD_PLUGINS=True
       - AIRFLOW__CORE__STORE_SERIALIZED_DAGS=True
       - AIRFLOW__CORE__MIN_SERIALIZED_DAG_UPDATE_INTERVAL=30
+      - RABBITMQ_MGMT_URL=http://rabbitmq:15672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=admin1234
 
 
   triggerer:
@@ -44,6 +50,9 @@ services:
       - "root"
     environment:
       - PYTHONASYNCIODEBUG=1
+      - RABBITMQ_MGMT_URL=http://rabbitmq:15672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=admin1234
 
 
   # Kafka Zookeeper
@@ -147,6 +156,22 @@ services:
         "--port", "5003"
       ]
 
+  # RabbitMQ (with management UI)
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin1234
+      - RABBITMQ_DEFAULT_VHOST=/
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - bigdata-network
+
 
   # === Grafana ===
   grafana:
@@ -197,6 +222,7 @@ volumes:
   mlartifacts:
   grafana_data:
   kafka_data:
+  rabbitmq_data:
 
 
 

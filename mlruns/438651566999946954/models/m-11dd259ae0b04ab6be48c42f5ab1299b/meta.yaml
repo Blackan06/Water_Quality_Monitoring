@@ -1,0 +1,10 @@
+artifact_location: file:///app/mlartifacts/438651566999946954/models/m-11dd259ae0b04ab6be48c42f5ab1299b/artifacts
+creation_timestamp: 1755663420679
+experiment_id: '438651566999946954'
+last_updated_timestamp: 1755663423743
+model_id: m-11dd259ae0b04ab6be48c42f5ab1299b
+model_type: ''
+name: xgb_model
+source_run_id: d19642eb6428492d871760c467dfc826
+status: 2
+status_message: null

@@ -1,0 +1,10 @@
+artifact_location: file:///app/mlartifacts/438651566999946954/models/m-9e41d9e4ffa849a082a505d9695d4464/artifacts
+creation_timestamp: 1755663423913
+experiment_id: '438651566999946954'
+last_updated_timestamp: 1755663426759
+model_id: m-9e41d9e4ffa849a082a505d9695d4464
+model_type: ''
+name: best_model
+source_run_id: d19642eb6428492d871760c467dfc826
+status: 2
+status_message: null
