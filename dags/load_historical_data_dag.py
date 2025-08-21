@@ -1,5 +1,6 @@
 from airflow.operators.python import PythonOperator
 from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from docker.types import Mount
 from datetime import datetime, timedelta
 import logging
@@ -41,53 +42,66 @@ def process_training_results(**context):
     """Process results from training and show best model information"""
     try:
         logger.info("Processing training results...")
-        
-        import os
-        import json
-        
-        # Check for new comprehensive metrics first, then fallback to enhanced metadata
-        metrics_file = './models/metrics.json'
+
+        # Check for ensemble + LSTM metrics
+        metrics_file = './models/metrics.json'  # ensemble metrics
+        lstm_metrics_file = './models/lstm_metrics.json'
         metadata_file = './models/enhanced_metadata.json'
-        
+
+        metrics = {}
         if os.path.exists(metrics_file):
-            # Use new comprehensive metrics
             with open(metrics_file, 'r') as f:
-                metrics = json.load(f)
-            logger.info("📊 Using comprehensive ensemble metrics")
-        elif os.path.exists(metadata_file):
+                ensemble_metrics = json.load(f)
+            metrics.update(ensemble_metrics)
+            logger.info("📊 Found ensemble metrics")
+
+        if os.path.exists(lstm_metrics_file):
+            try:
+                with open(lstm_metrics_file, 'r') as f:
+                    lstm_metrics = json.load(f)
+                metrics.update(lstm_metrics)
+                logger.info("📊 Found LSTM metrics")
+            except Exception as e:
+                logger.warning(f"Could not read LSTM metrics: {e}")
+
+        if not metrics and os.path.exists(metadata_file):
             # Fallback to enhanced metadata
             with open(metadata_file, 'r') as f:
                 metadata = json.load(f)
-            metrics = metadata['metrics']
+            metrics = metadata.get('metrics', {})
             logger.info("📊 Using enhanced metadata (fallback)")
-        else:
+
+        if not metrics:
             logger.error("❌ No metrics files found")
             return "Training completed but no metrics found"
-        
-        # Extract metrics
+            
+        # Extract metrics (include lstm)
         xgb_r2 = metrics.get('xgb', {}).get('r2', 0.0)
         rf_r2 = metrics.get('rf', {}).get('r2', 0.0)
         ensemble_r2 = metrics.get('ensemble', {}).get('r2', 0.0)
-        
+        lstm_r2 = metrics.get('lstm', {}).get('r2', 0.0)
+            
         # Compare all models and select the best one
         model_scores = {
             'xgb': xgb_r2,
             'rf': rf_r2,
-            'ensemble': ensemble_r2
+            'ensemble': ensemble_r2,
+            'lstm': lstm_r2
         }
-        
+
         best_model = max(model_scores, key=model_scores.get)
         best_score = model_scores[best_model]
-        
+
         logger.info(f"📊 Model Performance Comparison:")
         logger.info(f"  XGBoost: R² = {xgb_r2:.4f}")
         logger.info(f"  Random Forest: R² = {rf_r2:.4f}")
         logger.info(f"  Ensemble: R² = {ensemble_r2:.4f}")
+        logger.info(f"  LSTM: R² = {lstm_r2:.4f}")
         logger.info(f"🏆 Best model selected: {best_model.upper()} (R²: {best_score:.4f})")
-        
+            
         # Cleanup inferior models to save space
         _cleanup_inferior_models(best_model)
-        
+
         # Push results to XCom
         context['task_instance'].xcom_push(key='training_metrics', value=metrics)
         context['task_instance'].xcom_push(key='best_model_info', value={
@@ -95,9 +109,9 @@ def process_training_results(**context):
             'best_model': best_model,
             'best_score': best_score
         })
-        
+
         return f"Training completed: {best_model.upper()} (R²: {best_score:.4f}) - Kept only best model"
-        
+
     except Exception as e:
         logger.error(f"Error processing training results: {e}")
         return f"Training processing failed: {str(e)}"
@@ -421,9 +435,9 @@ def load_historical_data_and_train_ensemble() :
         network_mode='bridge',
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
         mounts=[
-            Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/models', 
+            Mount(source=os.getenv('PROJECT_ROOT', 'D:\WQI\Water_Quality_Monitoring') + '/models', 
                 target='/app/models', type='bind'),
-            Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/spark', 
+            Mount(source=os.getenv('PROJECT_ROOT', 'D:\WQI\Water_Quality_Monitoring') + '/spark', 
                 target='/app/spark', type='bind')
         ],
         environment={
@@ -459,7 +473,25 @@ def load_historical_data_and_train_ensemble() :
         python_callable=show_best_model_info,
     )
 
-    # Định nghĩa dependencies - Sequential execution
-    train_model_task >> process_results_task >> save_mlflow_task >> show_best_model_task 
+    # Optional: Trigger LSTM multi-station training DAG (runs independently)
+    try:
+        station_ids_env = os.getenv('STATION_IDS', '0,1,2')
+        station_ids_conf = [int(s) for s in station_ids_env.split(',') if s.strip() != '']
+    except Exception:
+        station_ids_conf = [0, 1, 2]
+
+    trigger_lstm_training = TriggerDagRunOperator(
+        task_id='trigger_lstm_multi_station_training',
+        trigger_dag_id='train_lstm_multi_station',
+        conf={
+            'station_ids': station_ids_conf
+        }
+        # By default does not wait for completion
+    )
+
+    # Định nghĩa dependencies
+    # Run ensemble training as before, and also trigger LSTM training (non-blocking)
+    train_model_task >> [process_results_task, trigger_lstm_training]
+    process_results_task >> save_mlflow_task >> show_best_model_task 
 
 load_historical_data_and_train_ensemble()

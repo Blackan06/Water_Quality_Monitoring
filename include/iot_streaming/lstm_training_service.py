@@ -148,26 +148,49 @@ class LSTMTrainingService:
                          emb_dim: int = 3,
                          dropout_rate: float = 0.1,
                          learning_rate: float = 0.001,
-                         l2_weight: float = 1e-4) -> tf.keras.Model:
+                         l2_weight: float = 1e-4,
+                         conv_filters: int = 0,
+                         conv_kernel_size: int = 3,
+                         recurrent_dropout: float = 0.0,
+                         spatial_dropout1d_rate: float = 0.0,
+                         gaussian_noise_std: float = 0.0,
+                         emb_dropout: float = 0.0) -> tf.keras.Model:
         """Compact LSTM + station embedding, multi-horizon delta output."""
         try:
             seq_in = tf.keras.Input(shape=input_shape, name='seq')
             st_in  = tf.keras.Input(shape=(1,), dtype='int32', name='station_idx')
 
             x = tf.keras.layers.Masking()(seq_in)
+            if conv_filters and conv_filters > 0 and conv_kernel_size and conv_kernel_size > 0:
+                x = tf.keras.layers.Conv1D(
+                    filters=int(conv_filters),
+                    kernel_size=int(conv_kernel_size),
+                    padding='causal',
+                    activation='relu',
+                    kernel_regularizer=tf.keras.regularizers.l2(l2_weight)
+                )(x)
+            if spatial_dropout1d_rate and spatial_dropout1d_rate > 0:
+                x = tf.keras.layers.SpatialDropout1D(rate=float(spatial_dropout1d_rate))(x)
+            if gaussian_noise_std and gaussian_noise_std > 0:
+                x = tf.keras.layers.GaussianNoise(stddev=float(gaussian_noise_std))(x)
             x = tf.keras.layers.LSTM(
                 units=lstm_units,
                 return_sequences=False,
                 dropout=dropout_rate,
+                recurrent_dropout=recurrent_dropout,
                 kernel_regularizer=tf.keras.regularizers.l2(l2_weight)
             )(x)
+            x = tf.keras.layers.LayerNormalization()(x)
             x = tf.keras.layers.Dropout(dropout_rate)(x)
 
             s = tf.keras.layers.Embedding(n_stations, emb_dim, name='st_emb')(st_in)
             s = tf.keras.layers.Flatten()(s)
+            if emb_dropout and emb_dropout > 0:
+                s = tf.keras.layers.Dropout(rate=float(emb_dropout))(s)
 
             h = tf.keras.layers.Concatenate()([x, s])
-            h = tf.keras.layers.Dense(16, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(l2_weight))(h)
+            h = tf.keras.layers.Dense(16, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(l2_weight), activity_regularizer=tf.keras.regularizers.l2(l2_weight))(h)
+            h = tf.keras.layers.Dropout(dropout_rate)(h)
             out = tf.keras.layers.Dense(int(max(1, forecast_horizon)), name='delta')(h)
 
             model = tf.keras.Model(inputs=[seq_in, st_in], outputs=out)
@@ -225,6 +248,16 @@ class LSTMTrainingService:
             if not feature_cols:
                 return {'error': 'No feature columns available for LSTM training'}
 
+            # Winsorize to reduce outlier impact (1st-99th percentile) on core signals and target
+            for col in ['wqi', 'ph', 'temperature', 'do']:
+                if col in df_sorted.columns:
+                    try:
+                        series = pd.to_numeric(df_sorted[col], errors='coerce')
+                        lo, hi = np.nanpercentile(series.dropna(), [1, 99])
+                        df_sorted[col] = series.clip(lower=lo, upper=hi)
+                    except Exception:
+                        pass
+
             # Add seasonal features from timestamp (month sin/cos)
             try:
                 df_sorted['timestamp'] = pd.to_datetime(df_sorted['timestamp'])
@@ -235,14 +268,22 @@ class LSTMTrainingService:
             except Exception as _:
                 pass
 
-            # Add lag and rolling features (per station) without leakage (for wqi only)
+            # Add lag and rolling features (per station) without leakage
             try:
                 group = df_sorted.groupby('station_id', group_keys=False)
+                # Target lags/rolling
                 if 'wqi' in df_sorted.columns:
                     df_sorted['wqi_lag_1'] = group['wqi'].shift(1)
                     df_sorted['wqi_lag_3'] = group['wqi'].shift(3)
                     df_sorted['wqi_roll_mean_3'] = group['wqi'].shift(1).rolling(window=3, min_periods=1).mean()
                     feature_cols.extend(['wqi_lag_1', 'wqi_lag_3', 'wqi_roll_mean_3'])
+                # Core feature lags/rolling
+                for c in ['ph', 'temperature', 'do']:
+                    if c in df_sorted.columns:
+                        df_sorted[f'{c}_lag_1'] = group[c].shift(1)
+                        df_sorted[f'{c}_lag_3'] = group[c].shift(3)
+                        df_sorted[f'{c}_roll_mean_3'] = group[c].shift(1).rolling(window=3, min_periods=1).mean()
+                        feature_cols.extend([f'{c}_lag_1', f'{c}_lag_3', f'{c}_roll_mean_3'])
             except Exception as e:
                 logger.warning(f"Failed to add lag/rolling features: {e}")
 
@@ -322,6 +363,28 @@ class LSTMTrainingService:
             station_train_idx_emb = np.vectorize(sid_to_emb.get)(station_train_idx).astype(np.int32).reshape(-1, 1)
             station_val_idx_emb = np.vectorize(sid_to_emb.get)(station_val_idx).astype(np.int32).reshape(-1, 1)
 
+            # Per-station scale for delta targets to balance stations (use train stats only)
+            try:
+                delta_std_by_sid = {}
+                for sid in unique_station_ids:
+                    mask = (station_train_idx == sid)
+                    if not np.any(mask):
+                        continue
+                    std_sid = float(np.std(y_train[mask], axis=0).mean())  # average across horizons
+                    if not np.isfinite(std_sid) or std_sid <= 1e-6:
+                        std_sid = 1.0
+                    delta_std_by_sid[sid] = std_sid
+                # Build std vectors aligned with rows
+                train_std_vec = np.array([delta_std_by_sid.get(sid, 1.0) for sid in station_train_idx], dtype=np.float32).reshape(-1, 1)
+                val_std_vec = np.array([delta_std_by_sid.get(sid, 1.0) for sid in station_val_idx], dtype=np.float32).reshape(-1, 1)
+                # Scale deltas
+                y_train = y_train / train_std_vec
+                y_val = y_val / val_std_vec
+            except Exception as _:
+                delta_std_by_sid = {sid: 1.0 for sid in unique_station_ids}
+                train_std_vec = np.ones((y_train.shape[0], 1), dtype=np.float32)
+                val_std_vec = np.ones((y_val.shape[0], 1), dtype=np.float32)
+
             logger.info(f"Data split (per-station temporal): Train={len(X_train)}, Val={len(X_val)}, Total sequences={total_sequences}")
             logger.info(f"Input shape (train): {X_train.shape}")
             
@@ -335,7 +398,13 @@ class LSTMTrainingService:
                 emb_dim=3,
                 dropout_rate=dropout_rate,
                 learning_rate=learning_rate,
-                l2_weight=l2_weight
+                l2_weight=l2_weight,
+                conv_filters=conv_filters,
+                conv_kernel_size=conv_kernel_size,
+                recurrent_dropout=min(0.5, max(0.0, dropout_rate)),
+                spatial_dropout1d_rate=0.1,
+                gaussian_noise_std=0.03,
+                emb_dropout=min(0.5, dropout_rate / 2.0)
             )
             
             if model is None:
@@ -394,19 +463,19 @@ class LSTMTrainingService:
             # Do not scale multi-horizon targets; Huber is robust
             
             # Early stopping to prevent overfitting
+            # Train/Test only: monitor training loss for callbacks
             early_stopping = tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
+                monitor='loss',
                 patience=10,
                 restore_best_weights=True
             )
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss', factor=0.5, patience=5, min_lr=1e-5
+                monitor='loss', factor=0.5, patience=5, min_lr=1e-5
             )
             
             # Train model
             history = model.fit(
                 {'seq': X_train_scaled, 'station_idx': station_train_idx_emb}, y_train,
-                validation_data=({'seq': X_val_scaled, 'station_idx': station_val_idx_emb}, y_val),
                 epochs=epochs,
                 batch_size=batch_size,
                 callbacks=[early_stopping, reduce_lr],
@@ -418,10 +487,13 @@ class LSTMTrainingService:
             val_loss_scaled, val_mae_scaled = model.evaluate({'seq': X_val_scaled, 'station_idx': station_val_idx_emb}, y_val, verbose=0)
             
             # Predict deltas (N,H)
-            y_train_pred = model.predict({'seq': X_train_scaled, 'station_idx': station_train_idx_emb}, verbose=0)
-            y_val_pred = model.predict({'seq': X_val_scaled, 'station_idx': station_val_idx_emb}, verbose=0)
+            y_train_pred_scaled = model.predict({'seq': X_train_scaled, 'station_idx': station_train_idx_emb}, verbose=0)
+            y_val_pred_scaled = model.predict({'seq': X_val_scaled, 'station_idx': station_val_idx_emb}, verbose=0)
+            # Unscale deltas back
+            y_train_pred = y_train_pred_scaled * train_std_vec
+            y_val_pred = y_val_pred_scaled * val_std_vec
 
-            # Gamma per horizon using val deltas
+            # Gamma per horizon using held-out (test) deltas
             gammas = []
             for h in range(H):
                 pred = y_val_pred[:, h]
@@ -490,7 +562,7 @@ class LSTMTrainingService:
                 'r2_per_h': [float(_r2(ytrue_val[:, h], last_wqi_val)) for h in range(H)]
             }
 
-            # Per-station metrics on validation
+            # Per-station metrics on test set
             per_station_val = {}
             for sid in sorted(df_sorted['station_id'].unique()):
                 mask = (station_val_idx == sid)
@@ -539,7 +611,7 @@ class LSTMTrainingService:
                         'r2': train_r2_h
                     }
                 },
-                'val_metrics': {
+                'test_metrics': {
                     'loss': val_mse,
                     'mae': val_mae,
                     'smape': float(np.mean(val_smape_h)),
@@ -553,9 +625,9 @@ class LSTMTrainingService:
                 },
                 'baseline_metrics': {
                     'train': baseline_train,
-                    'val': baseline_val
+                    'test': baseline_val
                 },
-                'per_station_val': per_station_val,
+                'per_station_test': per_station_val,
                 'training_history': history.history,
                 'input_shape': X_train.shape,
                 'sequence_length': self.sequence_length,
@@ -572,7 +644,7 @@ class LSTMTrainingService:
             
             logger.info(f"✅ LSTM Training completed:")
             logger.info(f"  Train R²: {train_r2:.4f}, MAE: {train_mae:.4f}")
-            logger.info(f"  Val R²: {val_r2:.4f}, MAE: {val_mae:.4f}")
+            logger.info(f"  Test R²: {val_r2:.4f}, MAE: {val_mae:.4f}")
             
             return results
             
