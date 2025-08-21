@@ -7,7 +7,8 @@ import pandas as pd
 import psycopg2
 import json
 
-from include.iot_streaming.lstm_training_service import LSTMTrainingService
+# Avoid heavy imports at module import time to prevent DagBag timeouts.
+# Import LSTMTrainingService lazily inside task functions.
 
 
 logging.basicConfig(
@@ -31,7 +32,8 @@ def _get_db_conn():
         port=os.getenv('DB_PORT', '5432'),
         database=os.getenv('DB_NAME', 'wqi_db'),
         user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'postgres1234')
+        password=os.getenv('DB_PASSWORD', 'postgres1234'),
+        connect_timeout=int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
     )
 
 
@@ -58,7 +60,28 @@ def load_lstm_data(**context):
         """
     )
 
+    output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models')
+    os.makedirs(output_dir, exist_ok=True)
+    data_path = os.path.join(output_dir, 'lstm_training_data.csv')
+    # Remove existing file to avoid mixing old data
+    try:
+        if os.path.exists(data_path):
+            os.remove(data_path)
+    except Exception:
+        pass
+
+    record_count = 0
+    station_set = set()
+
     with _get_db_conn() as conn:
+        # Set statement timeout to avoid long-running queries
+        try:
+            with conn.cursor() as cset:
+                # 5 minutes timeout
+                cset.execute("SET statement_timeout TO '300000'")
+        except Exception:
+            logger.warning("Could not set statement_timeout; proceeding with defaults")
+
         # Validate requested stations against DB within date range
         try:
             st_df = pd.read_sql(
@@ -72,7 +95,8 @@ def load_lstm_data(**context):
                 params=(start_date, end_date)
             )
             available = st_df['station_id'].astype(int).tolist()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch available stations: {e}")
             available = []
 
         if available:
@@ -84,32 +108,51 @@ def load_lstm_data(**context):
         else:
             filtered_station_ids = station_ids
 
-        df = pd.read_sql(query, conn, params=(filtered_station_ids, start_date, end_date))
+        # Stream data in chunks to avoid memory pressure and long stalls
+        chunksize = int(os.getenv('DB_CHUNKSIZE', '50000'))
+        try:
+            chunk_iter = pd.read_sql(
+                query,
+                conn,
+                params=(filtered_station_ids, start_date, end_date),
+                chunksize=chunksize
+            )
+        except Exception as e:
+            logger.error(f"Failed to start chunked read: {e}")
+            # Fallback to single read (may still fail)
+            chunk_iter = [pd.read_sql(query, conn, params=(filtered_station_ids, start_date, end_date))]
 
-    if df.empty:
+        written_any = False
+        for idx, chunk in enumerate(chunk_iter, start=1):
+            if chunk is None or chunk.empty:
+                continue
+            # Ensure datetime and timestamp column
+            try:
+                chunk['measurement_date'] = pd.to_datetime(chunk['measurement_date'])
+            except Exception:
+                pass
+            chunk['timestamp'] = chunk['measurement_date']
+            # Append to CSV incrementally
+            header = not written_any
+            try:
+                chunk.to_csv(data_path, mode='a', header=header, index=False)
+                written_any = True
+            except Exception as e:
+                logger.error(f"Failed to write chunk {idx} to CSV: {e}")
+                raise
+            # Update counters
+            record_count += len(chunk)
+            try:
+                station_set.update(chunk['station_id'].astype(int).unique().tolist())
+            except Exception:
+                pass
+            if idx % 5 == 0:
+                logger.info(f"Streamed {record_count} rows so far... (chunk {idx})")
+
+    station_list = sorted(list(station_set)) if record_count > 0 else []
+    if record_count == 0:
         logger.warning("No historical data returned for the specified criteria")
-
-    # Chuẩn hóa format theo yêu cầu LSTMTrainingService
-    df['measurement_date'] = pd.to_datetime(df['measurement_date'])
-    df['timestamp'] = df['measurement_date']
-    # Rename để thống nhất tên cột như service kỳ vọng
-    df = df.rename(columns={
-        'ph': 'ph',
-        'temperature': 'temperature',
-        'do': 'do',
-        'wqi': 'wqi'
-    })
-
-    record_count = len(df)
-    station_list = sorted(df['station_id'].unique().tolist()) if record_count > 0 else []
     logger.info(f"Loaded {record_count} records for stations: {station_list}")
-
-    # Lưu ra file để chia sẻ giữa tasks
-    # Dùng thư mục models của Airflow container để đảm bảo được mount ra ngoài
-    output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models')
-    os.makedirs(output_dir, exist_ok=True)
-    data_path = os.path.join(output_dir, 'lstm_training_data.csv')
-    df.to_csv(data_path, index=False)
 
     # Push XCom
     ti = context['task_instance']
@@ -153,7 +196,8 @@ def train_lstm_model(**context):
         'gamma_shrink': conf.get('gamma_shrink', 0.8),
     }
 
-    # Khởi tạo service và train
+    # Khởi tạo service và train (lazy import to avoid heavy DagBag import)
+    from include.iot_streaming.lstm_training_service import LSTMTrainingService
     lstm_service = LSTMTrainingService()
     results = lstm_service.train_global_lstm(df, **params)
 
@@ -173,12 +217,32 @@ def train_lstm_model(**context):
     except Exception as e:
         logger.warning(f"Could not save model to {model_path}: {e}")
 
-    # Push metrics (train/test only)
+    # Push metrics (train/test and per-sample horizon-1 outputs for downstream blending)
     ti.xcom_push(key='train_metrics', value=results.get('train_metrics'))
     ti.xcom_push(key='test_metrics', value=results.get('test_metrics'))
     ti.xcom_push(key='model_path', value=model_path)
     ti.xcom_push(key='baseline_metrics', value=results.get('baseline_metrics'))
     ti.xcom_push(key='per_station_test', value=results.get('per_station_test'))
+    # Persist per-sample TEST predictions for H=1 to CSV for downstream blending
+    try:
+        keys = results.get('test_keys_h1')
+        y_true = results.get('y_true_test_h1')
+        y_pred = results.get('y_pred_test_h1')
+        if keys and y_true and y_pred and len(keys) == len(y_true) == len(y_pred):
+            out_dir = os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models')
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, 'lstm_test_predictions_h1.csv')
+            import csv
+            with open(out_path, 'w', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(['station_id', 'timestamp', 'y_true', 'y_lstm'])
+                for k, yt, yp in zip(keys, y_true, y_pred):
+                    w.writerow([k.get('station_id'), k.get('timestamp'), yt, yp])
+            logger.info(f"✅ Wrote LSTM validation predictions to {out_path}")
+        else:
+            logger.info("No per-sample validation predictions available for export")
+    except Exception as e:
+        logger.warning(f"Could not persist LSTM per-sample predictions: {e}")
 
     # Persist LSTM test metrics to models for downstream DAGs
     try:

@@ -300,6 +300,7 @@ class LSTMTrainingService:
             X_train_list, y_train_list, X_val_list, y_val_list = [], [], [], []
             last_wqi_train_list, last_wqi_val_list = [], []
             st_tr_list, st_val_list = [], []
+            ts_tr_list, ts_val_list = [], []  # target timestamps for horizon-1
             total_sequences = 0
             for station_id in sorted(df_sorted['station_id'].unique()):
                 station_data = df_sorted[df_sorted['station_id'] == station_id].copy()
@@ -308,7 +309,7 @@ class LSTMTrainingService:
                     logger.warning(f"Station {station_id}: Insufficient data for sequence length {self.sequence_length}")
                     continue
 
-                X_s, y_s, last_wqi_s, st_idx = [], [], [], []
+                X_s, y_s, last_wqi_s, st_idx, ts_targets_h1 = [], [], [], [], []
                 for i in range(len(station_data) - self.sequence_length - H + 1):
                     seq_features = station_data[feature_cols].iloc[i:i + self.sequence_length].values.astype(np.float32)
                     X_s.append(seq_features)
@@ -323,6 +324,11 @@ class LSTMTrainingService:
                     y_s.append(deltas)
                     last_wqi_s.append(prev_end)
                     st_idx.append(station_id)
+                    # capture horizon-1 target timestamp for this sample
+                    try:
+                        ts_targets_h1.append(pd.to_datetime(station_data['timestamp'].iloc[i + self.sequence_length]))
+                    except Exception:
+                        ts_targets_h1.append(None)
 
                 if not X_s:
                     continue
@@ -343,6 +349,8 @@ class LSTMTrainingService:
                 last_wqi_val_list.append(np.array(last_wqi_s[split_idx:], dtype=np.float32))
                 st_tr_list.append(st_idx[:split_idx])
                 st_val_list.append(st_idx[split_idx:])
+                ts_tr_list.append(np.array(ts_targets_h1[:split_idx], dtype='datetime64[ns]'))
+                ts_val_list.append(np.array(ts_targets_h1[split_idx:], dtype='datetime64[ns]'))
 
             if not X_train_list or not X_val_list:
                 return {'error': 'Insufficient sequences after per-station split'}
@@ -356,6 +364,8 @@ class LSTMTrainingService:
 
             station_train_idx = np.concatenate(st_tr_list, axis=0).astype(np.int32)
             station_val_idx = np.concatenate(st_val_list, axis=0).astype(np.int32)
+            target_ts_train = np.concatenate(ts_tr_list, axis=0)
+            target_ts_val = np.concatenate(ts_val_list, axis=0)
             # Map original station ids to contiguous embedding indices [0, n_stations)
             unique_station_ids = sorted(df_sorted['station_id'].unique().tolist())
             sid_to_emb = {sid: idx for idx, sid in enumerate(unique_station_ids)}
@@ -412,52 +422,33 @@ class LSTMTrainingService:
             
             # Per-station scaling on training data only, then concatenate
             try:
-                X_train_scaled_list, X_val_scaled_list = [], []
                 self.feature_names = feature_cols
                 unique_stations = sorted(df_sorted['station_id'].unique())
-                for sid in unique_stations:
-                    tr_mask = (station_train_idx == sid)
-                    val_mask = (station_val_idx == sid)
-                    X_tr_sid = X_train[tr_mask]
-                    X_val_sid = X_val[val_mask]
-                    if X_tr_sid.size == 0:
-                        # No training data for this station in current split
-                        if X_val_sid.size > 0:
-                            X_val_scaled_list.append(X_val_sid.astype(np.float32))
-                        continue
-                    n_tr, seq_len, n_feat = X_tr_sid.shape
-                    scaler_sid = StandardScaler()
-                    X_tr_2d = X_tr_sid.reshape(n_tr * seq_len, n_feat)
-                    scaler_sid.fit(X_tr_2d)
-                    X_tr_scaled = scaler_sid.transform(X_tr_2d).reshape(n_tr, seq_len, n_feat).astype(np.float32)
-                    X_train_scaled_list.append(X_tr_scaled)
-                    if X_val_sid.size > 0:
-                        n_v, s_v, f_v = X_val_sid.shape
-                        X_val_2d = X_val_sid.reshape(n_v * s_v, f_v)
-                        X_val_scaled = scaler_sid.transform(X_val_2d).reshape(n_v, s_v, f_v).astype(np.float32)
-                        X_val_scaled_list.append(X_val_scaled)
-                # Concatenate back in original order
-                # Rebuild arrays using masks order to preserve alignment
+                scaler_by_sid = {}
+                # Prepare output arrays
                 X_train_scaled = np.empty_like(X_train, dtype=np.float32)
                 X_val_scaled = np.empty_like(X_val, dtype=np.float32)
-                # Fill per station slices
                 for sid in unique_stations:
                     tr_mask = (station_train_idx == sid)
                     val_mask = (station_val_idx == sid)
                     X_tr_sid = X_train[tr_mask]
-                    X_val_sid = X_val[val_mask]
                     if X_tr_sid.size == 0:
                         continue
                     n_tr, seq_len, n_feat = X_tr_sid.shape
                     scaler_sid = StandardScaler()
                     X_tr_2d = X_tr_sid.reshape(n_tr * seq_len, n_feat)
                     scaler_sid.fit(X_tr_2d)
+                    scaler_by_sid[int(sid)] = scaler_sid
+                    # Transform train
                     X_train_scaled[tr_mask] = scaler_sid.transform(X_tr_2d).reshape(n_tr, seq_len, n_feat).astype(np.float32)
+                    # Transform val
+                    X_val_sid = X_val[val_mask]
                     if X_val_sid.size > 0:
                         n_v, s_v, f_v = X_val_sid.shape
                         X_val_scaled[val_mask] = scaler_sid.transform(X_val_sid.reshape(n_v * s_v, f_v)).reshape(n_v, s_v, f_v).astype(np.float32)
             except Exception as e:
                 logger.warning(f"Failed per-station scaling, proceeding without scaling: {e}")
+                scaler_by_sid = {}
                 X_train_scaled, X_val_scaled = X_train, X_val
 
             # Do not scale multi-horizon targets; Huber is robust
@@ -516,6 +507,76 @@ class LSTMTrainingService:
 
             yhat_train = reconstruct(last_wqi_train, y_train_pred, gammas)
             yhat_val = reconstruct(last_wqi_val, y_val_pred, gammas)
+
+            # Build test set aligned to Spark logic: last 12 months globally
+            try:
+                max_ts = pd.to_datetime(df_sorted['timestamp']).max()
+                split_dt = max_ts - pd.DateOffset(months=12)
+                X_test_list, last_wqi_test_list, st_test_list, ts_test_list = [], [], [], []
+                for station_id in sorted(df_sorted['station_id'].unique()):
+                    station_data = df_sorted[df_sorted['station_id'] == station_id].copy()
+                    H = int(max(1, forecast_horizon))
+                    if len(station_data) < self.sequence_length + H:
+                        continue
+                    for i in range(len(station_data) - self.sequence_length - H + 1):
+                        target_ts = pd.to_datetime(station_data['timestamp'].iloc[i + self.sequence_length])
+                        if target_ts <= split_dt:
+                            continue
+                        seq_features = station_data[feature_cols].iloc[i:i + self.sequence_length].values.astype(np.float32)
+                        X_test_list.append(seq_features)
+                        prev_end = np.float32(station_data['wqi'].iloc[i + self.sequence_length - 1])
+                        last_wqi_test_list.append(prev_end)
+                        st_test_list.append(int(station_id))
+                        ts_test_list.append(target_ts)
+                if X_test_list:
+                    X_test = np.array(X_test_list, dtype=np.float32)
+                    last_wqi_test = np.array(last_wqi_test_list, dtype=np.float32).reshape(-1, 1)
+                    station_test_idx = np.array(st_test_list, dtype=np.int32)
+                    station_test_idx_emb = np.vectorize(sid_to_emb.get)(station_test_idx).astype(np.int32).reshape(-1, 1)
+                    # Scale per station using train scalers
+                    X_test_scaled = np.empty_like(X_test, dtype=np.float32)
+                    for sid in sorted(set(st_test_list)):
+                        mask = (station_test_idx == sid)
+                        X_sid = X_test[mask]
+                        if X_sid.size == 0:
+                            continue
+                        n_t, s_t, f_t = X_sid.shape
+                        if int(sid) in scaler_by_sid:
+                            sc = scaler_by_sid[int(sid)]
+                            X_test_scaled[mask] = sc.transform(X_sid.reshape(n_t * s_t, f_t)).reshape(n_t, s_t, f_t).astype(np.float32)
+                        else:
+                            X_test_scaled[mask] = X_sid.astype(np.float32)
+                    # Predict deltas and reconstruct horizon outputs
+                    y_test_pred_scaled = model.predict({'seq': X_test_scaled, 'station_idx': station_test_idx_emb}, verbose=0)
+                    y_test_pred = y_test_pred_scaled  # unscale deltas not applied; robust loss used
+                    # Reconstruct cumulative for H horizons
+                    yhat_test = reconstruct(last_wqi_test, y_test_pred, gammas)
+                    # Build keys for h=1
+                    test_keys_h1 = [
+                        {
+                            'station_id': int(sid),
+                            'timestamp': pd.to_datetime(ts).isoformat() if ts is not None else None
+                        } for sid, ts in zip(station_test_idx.tolist(), ts_test_list)
+                    ]
+                    y_pred_test_h1 = yhat_test[:, 0].tolist() if yhat_test.ndim == 2 and yhat_test.shape[1] >= 1 else yhat_test.tolist()
+                    # We do not have ground truth ytrue directly without computing deltas; approximate with reconstructed true using df directly
+                    # For h=1, true is the actual wqi at target timestamp
+                    ytrue_series = []
+                    try:
+                        df_idx = df_sorted.set_index(['station_id', 'timestamp'])['wqi']
+                        for sid, ts in zip(station_test_idx.tolist(), ts_test_list):
+                            try:
+                                ytrue_series.append(float(df_idx.loc[(int(sid), pd.to_datetime(ts))]))
+                            except Exception:
+                                ytrue_series.append(np.nan)
+                    except Exception:
+                        ytrue_series = [np.nan for _ in range(len(test_keys_h1))]
+                    y_true_test_h1 = ytrue_series
+                else:
+                    test_keys_h1, y_pred_test_h1, y_true_test_h1 = [], [], []
+            except Exception as e:
+                logger.warning(f"Failed to compute LSTM test predictions for blending: {e}")
+                test_keys_h1, y_pred_test_h1, y_true_test_h1 = [], [], []
 
             # True cumulative
             def reconstruct_true(last_vec: np.ndarray, deltas_true: np.ndarray) -> np.ndarray:
@@ -639,7 +700,11 @@ class LSTMTrainingService:
                     'batch_size': batch_size,
                     'gamma_shrink': float(gamma_shrink),
                     'forecast_horizon': H
-                }
+                },
+                # Horizon-1 per-sample outputs aligned to TEST rows (last 12 months globally) for downstream blending
+                'test_keys_h1': test_keys_h1,
+                'y_true_test_h1': y_true_test_h1,
+                'y_pred_test_h1': y_pred_test_h1
             }
             
             logger.info(f"✅ LSTM Training completed:")

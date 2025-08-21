@@ -45,7 +45,11 @@ def process_training_results(**context):
 
         # Check for ensemble + LSTM metrics
         metrics_file = './models/metrics.json'  # ensemble metrics
-        lstm_metrics_file = './models/lstm_metrics.json'
+        # Try multiple locations for LSTM metrics
+        lstm_metrics_candidates = [
+            './models/lstm_metrics.json',
+            os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models'), 'lstm_metrics.json')
+        ]
         metadata_file = './models/enhanced_metadata.json'
 
         metrics = {}
@@ -55,14 +59,17 @@ def process_training_results(**context):
             metrics.update(ensemble_metrics)
             logger.info("📊 Found ensemble metrics")
 
-        if os.path.exists(lstm_metrics_file):
-            try:
-                with open(lstm_metrics_file, 'r') as f:
-                    lstm_metrics = json.load(f)
-                metrics.update(lstm_metrics)
-                logger.info("📊 Found LSTM metrics")
-            except Exception as e:
-                logger.warning(f"Could not read LSTM metrics: {e}")
+        # Load LSTM metrics if present in any candidate path
+        for cand in lstm_metrics_candidates:
+            if os.path.exists(cand):
+                try:
+                    with open(cand, 'r') as f:
+                        lstm_metrics = json.load(f)
+                    metrics.update(lstm_metrics)
+                    logger.info(f"📊 Found LSTM metrics at: {cand}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Could not read LSTM metrics at {cand}: {e}")
 
         if not metrics and os.path.exists(metadata_file):
             # Fallback to enhanced metadata
@@ -74,7 +81,95 @@ def process_training_results(**context):
         if not metrics:
             logger.error("❌ No metrics files found")
             return "Training completed but no metrics found"
-            
+        
+        # Optional: Blend existing XGB+RF ensemble with LSTM predictions if per-sample predictions are available
+        try:
+            en_pred_path = os.path.join('./models', 'ensemble_test_predictions.csv')
+            lstm_pred_candidates = [
+                os.path.join('./models', 'lstm_test_predictions_h1.csv'),
+                os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models'), 'lstm_test_predictions_h1.csv')
+            ]
+            lstm_pred_path = next((p for p in lstm_pred_candidates if os.path.exists(p)), None)
+            if os.path.exists(en_pred_path) and lstm_pred_path:
+                df_en = pd.read_csv(en_pred_path)
+                df_lstm = pd.read_csv(lstm_pred_path)
+                # Normalize column names
+                df_en['measurement_date'] = pd.to_datetime(df_en['measurement_date'], errors='coerce')
+                df_lstm['timestamp'] = pd.to_datetime(df_lstm['timestamp'], errors='coerce')
+                # Join on exact keys
+                merged = df_en.merge(
+                    df_lstm,
+                    left_on=['station_id', 'measurement_date'],
+                    right_on=['station_id', 'timestamp'],
+                    how='inner'
+                )
+                if not merged.empty:
+                    y_true = merged['y_true'].astype(float).values
+                    y_en = merged['y_ensemble_xrf'].astype(float).values
+                    y_lstm = merged['y_lstm'].astype(float).values
+
+                    # Choose blending strategy
+                    strategy = os.getenv('BLEND_STRATEGY', 'learned').lower().strip()
+                    w_en, w_lstm = 0.7, 0.3  # defaults
+                    if strategy == 'fixed':
+                        w_env = os.getenv('BLEND_WEIGHTS')  # format: "0.7,0.3"
+                        if w_env:
+                            try:
+                                parts = [float(x) for x in w_env.split(',')]
+                                if len(parts) == 2 and parts[0] >= 0 and parts[1] >= 0 and abs(parts[0] + parts[1] - 1.0) < 1e-6:
+                                    w_en, w_lstm = parts[0], parts[1]
+                            except Exception:
+                                pass
+                    else:
+                        # learned weights on simplex: scan w_en in [0,1], w_lstm=1-w_en
+                        best_r2 = -1e9
+                        best_w = (w_en, w_lstm)
+                        n = len(y_true)
+                        if n >= 5:
+                            grid = np.linspace(0.0, 1.0, 101)
+                            y_true_mean = float(np.mean(y_true)) if n > 0 else 0.0
+                            ss_tot = float(np.sum((y_true - y_true_mean) ** 2))
+                            for w in grid:
+                                y_b = w * y_en + (1.0 - w) * y_lstm
+                                err = y_true - y_b
+                                ss_res = float(np.sum(err ** 2))
+                                if ss_tot > 0:
+                                    r2_w = 1.0 - ss_res / ss_tot
+                                else:
+                                    r2_w = -ss_res  # fallback: minimize SSE
+                                if r2_w > best_r2:
+                                    best_r2 = r2_w
+                                    best_w = (float(w), float(1.0 - w))
+                            w_en, w_lstm = best_w
+
+                    y_final = w_en * y_en + w_lstm * y_lstm
+                    # Compute metrics without sklearn
+                    err = y_true - y_final
+                    mae = float(np.mean(np.abs(err))) if len(err) > 0 else 0.0
+                    rmse = float(np.sqrt(np.mean(err ** 2))) if len(err) > 0 else 0.0
+                    # R2
+                    ss_res = float(np.sum(err ** 2))
+                    ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+                    r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+                    metrics['ensemble_lstm'] = {
+                        'r2': r2,
+                        'mae': mae,
+                        'rmse': rmse,
+                        'w_en': w_en,
+                        'w_lstm': w_lstm,
+                        'strategy': strategy
+                    }
+                    logger.info(f"📊 Added ENSEMBLE+LSTM metrics on {len(y_true)} matched rows: R²={r2:.4f}, MAE={mae:.4f}, RMSE={rmse:.4f}, weights=(en={w_en:.2f}, lstm={w_lstm:.2f}) using {strategy}")
+                else:
+                    logger.info("No overlapping rows between ensemble test and LSTM validation predictions; skipping blended metrics")
+            else:
+                if not os.path.exists(en_pred_path):
+                    logger.info("Ensemble per-sample predictions not found; skipping blended metrics")
+                if not lstm_pred_path:
+                    logger.info("LSTM per-sample predictions not found; skipping blended metrics")
+        except Exception as e:
+            logger.warning(f"Could not compute ENSEMBLE+LSTM blended metrics: {e}")
+
         # Extract metrics (include lstm)
         xgb_r2 = metrics.get('xgb', {}).get('r2', 0.0)
         rf_r2 = metrics.get('rf', {}).get('r2', 0.0)
@@ -86,7 +181,8 @@ def process_training_results(**context):
             'xgb': xgb_r2,
             'rf': rf_r2,
             'ensemble': ensemble_r2,
-            'lstm': lstm_r2
+            'lstm': lstm_r2,
+            'ensemble_lstm': metrics.get('ensemble_lstm', {}).get('r2', -float('inf'))
         }
 
         best_model = max(model_scores, key=model_scores.get)
@@ -486,12 +582,11 @@ def load_historical_data_and_train_ensemble() :
         conf={
             'station_ids': station_ids_conf
         }
-        # By default does not wait for completion
     )
 
     # Định nghĩa dependencies
-    # Run ensemble training as before, and also trigger LSTM training (non-blocking)
-    train_model_task >> [process_results_task, trigger_lstm_training]
+    # Trigger LSTM training asynchronously; process results immediately after ensemble training
+    train_model_task >> [trigger_lstm_training, process_results_task]
     process_results_task >> save_mlflow_task >> show_best_model_task 
 
 load_historical_data_and_train_ensemble()

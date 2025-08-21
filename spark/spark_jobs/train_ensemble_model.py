@@ -268,6 +268,27 @@ def train_with_optimized_tuning(train, test, spark):
     m_en  = calc(y_test, y_en)
 
     logger.info(f"📊 Results:\n  XGB: {m_xgb}\n  RF:  {m_rf}\n  ENS: {m_en}")
+    # Persist per-sample test predictions for downstream blending
+    try:
+        out_dir = "/app/models"
+        # Collect keys in the same order as test_tf rows
+        key_rows = test_tf.select("station_id", "measurement_date").collect()
+        import csv
+        from datetime import datetime as _dt
+        with open(f"{out_dir}/ensemble_test_predictions.csv", "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["station_id", "measurement_date", "y_true", "y_xgb", "y_rf", "y_ensemble_xrf"])
+            for i, row in enumerate(key_rows):
+                # measurement_date may be a datetime/date; convert to ISO string
+                md = row.measurement_date
+                if hasattr(md, 'isoformat'):
+                    md_str = md.isoformat()
+                else:
+                    md_str = str(md)
+                writer.writerow([row.station_id, md_str, float(y_test[i]), float(y_xgb[i]), float(y_rf[i]), float(y_en[i])])
+        logger.info("✅ Wrote ensemble_test_predictions.csv for downstream blending")
+    except Exception as e:
+        logger.warning(f"Could not write ensemble_test_predictions.csv: {e}")
     return {'xgb': best_xgb,
             'rf_pipeline': best_rf_pipeline,  # lưu cả pipeline để apply sau
             'scaler': scaler}, \
@@ -291,9 +312,13 @@ def save_comprehensive_models(models, metrics, out_dir="/app/models"):
     rf_pipe = models['rf_pipeline']
     rf_pipe.write().overwrite().save(f"{out_dir}/rf_pipeline")
     
-    # 4) Lưu metrics JSON
-    with open(f"{out_dir}/metrics.json","w") as f:
-        json.dump(metrics, f, indent=2)
+    # 4) Lưu metrics JSON (bao gồm placeholder cho lstm nếu blending sau)
+    try:
+        # If downstream blending adds LSTM, metrics can be merged later
+        with open(f"{out_dir}/metrics.json","w") as f:
+            json.dump(metrics, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Could not write metrics.json: {e}")
     
     # 5) Tìm best model
     best_model = max(metrics.items(), key=lambda x: x[1]['r2'])
