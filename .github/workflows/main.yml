@@ -33,6 +33,8 @@ jobs:
           echo "🛑 Stopping existing Astro Dev..."
           docker stop $(docker ps -aq) || true
           docker rm $(docker ps -aq) || true
+          docker network prune -f
+
 
           echo "🚀 Starting Astro Dev..."
           astro dev start 
