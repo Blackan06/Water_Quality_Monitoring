@@ -32,9 +32,10 @@ jobs:
 
           echo "🛑 Stopping existing Astro Dev..."
           astro dev kill || echo "⚠️ No Astro Dev process running"
+          docker rm $(docker ps -aq)
 
           echo "🚀 Starting Astro Dev..."
-          astro dev restart 
+          astro dev start 
 
           echo "📥 Importing Astro objects..."
           astro dev object import || echo "⚠️ Astro import failed"
