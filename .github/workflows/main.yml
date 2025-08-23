@@ -42,7 +42,7 @@ jobs:
           cd ..
 
           echo "🚀 Starting Astro Dev..."
-          astro dev start || echo "⚠️ Astro start failed"
+          astro dev restart || echo "⚠️ Astro restart failed"
 
           echo "📥 Importing Astro objects..."
           astro dev object import || echo "⚠️ Astro import failed"
