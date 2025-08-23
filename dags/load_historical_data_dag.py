@@ -28,6 +28,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+project_root = os.getenv("PROJECT_ROOT")
 
 # Default arguments
 default_args = {
@@ -530,11 +531,9 @@ def load_historical_data_and_train_ensemble() :
         docker_url='unix://var/run/docker.sock',
         network_mode='bridge',
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
-        mounts=[
-            Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/models', 
-                target='/app/models', type='bind'),
-            Mount(source=os.getenv('PROJECT_ROOT', '/root/Water_Quality_Monitoring') + '/spark', 
-                target='/app/spark', type='bind')
+        mounts = [
+            Mount(source=os.path.join(project_root, "models"), target="/app/models", type="bind"),
+            Mount(source=os.path.join(project_root, "spark"),  target="/app/spark",  type="bind"),
         ],
         environment={
             'DB_HOST': '194.238.16.14',
