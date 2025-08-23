@@ -31,8 +31,7 @@ jobs:
           echo "📦 Using workspace: $GITHUB_WORKSPACE"
 
           echo "🛑 Stopping existing Astro Dev..."
-          docker rm -f $(docker ps -aq) 2>/dev/null || true
-          docker rmi -f $(docker images -q) 2>/dev/null || true
+          docker system prune -a -f
           docker network prune -f
           docker volume prune -f
 
