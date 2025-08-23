@@ -38,7 +38,7 @@ jobs:
 
 
           echo "🚀 Starting Astro Dev..."
-          astro dev start 
+          script -q -e -c "astro dev start" /dev/null
 
           echo "🧹 Cleaning up Docker resources..."
           docker system prune -f || echo "⚠️ Docker prune failed"

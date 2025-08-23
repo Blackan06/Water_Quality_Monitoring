@@ -32,5 +32,5 @@ airflow:
 
   pools:
     - pool_name: default_pool
-      pool_slot: 128
+      pool_slot: 10
       pool_description: Default pool
