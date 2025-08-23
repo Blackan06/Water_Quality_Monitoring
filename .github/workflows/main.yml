@@ -12,7 +12,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        with:
+            path: /root/Water_Quality_Monitoring
       - name: Deploy on VPS
         run: |
           echo "📦 Navigating to project directory..."
