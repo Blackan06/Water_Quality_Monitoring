@@ -8,20 +8,23 @@ on:
 jobs:
   deploy:
     runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-            path: /root/Water_Quality_Monitoring
+        
+      - name: Show workspace info
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          pwd
+          ls -la
+
       - name: Deploy on VPS
         run: |
-          echo "📦 Navigating to project directory..."
-          cd ~/Water_Quality_Monitoring || { echo "❌ Directory not found"; exit 1; }
-
-          echo "🔄 Pulling latest code from GitHub..."
-          git reset --hard
-          git pull origin main || { echo "❌ Git pull failed"; exit 1; }
+          echo "📦 Using workspace: $GITHUB_WORKSPACE"
 
           echo "🛑 Stopping existing Astro Dev..."
           astro dev stop || echo "⚠️ No Astro Dev process running"
