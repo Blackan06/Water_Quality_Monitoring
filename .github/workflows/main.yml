@@ -31,8 +31,8 @@ jobs:
           echo "📦 Using workspace: $GITHUB_WORKSPACE"
 
           echo "🛑 Stopping existing Astro Dev..."
-          astro dev kill || echo "⚠️ No Astro Dev process running"
-          docker rm $(docker ps -aq)
+          docker stop $(docker ps -aq) || true
+          docker rm $(docker ps -aq) || true
 
           echo "🚀 Starting Astro Dev..."
           astro dev start 
