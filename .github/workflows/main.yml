@@ -39,7 +39,7 @@ jobs:
 
           echo "🚀 Starting Astro Dev..."
           echo "PROJECT_ROOT=${GITHUB_WORKSPACE}/repo" > .env
-          astro dev start 
+          script -q -e -c "astro dev start" /dev/null
 
           echo "🧹 Cleaning up Docker resources..."
           docker system prune -f || echo "⚠️ Docker prune failed"
