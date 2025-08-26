@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/649199348232149900/cddf82a1319043368a75d692555003ec/artifacts
+end_time: 1756230320893
+entry_point_name: ''
+experiment_id: '649199348232149900'
+lifecycle_stage: active
+run_id: cddf82a1319043368a75d692555003ec
+run_name: comprehensive_ensemble_training
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1756230308832
+status: 3
+tags: []
+user_id: root

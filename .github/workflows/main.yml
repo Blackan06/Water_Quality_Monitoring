@@ -31,9 +31,9 @@ jobs:
           echo "📦 Using workspace: $GITHUB_WORKSPACE"
 
           echo "🛑 Stopping existing Astro Dev..."
-          docker system prune -a -f
-          docker network prune -f
-          docker volume prune -f
+          docker container prune -a -f
+          docker network prune -a -f
+          docker volume prune -a -f
 
 
 
@@ -48,4 +48,6 @@ jobs:
           cd spark || exit 1
           docker build -t airflow/iot_stream:ensemble . || { echo "⚠️ Spark image build failed"; exit 1; }
           cd ..
+          docker system prune -f
+
           echo "✅ Deployment completed successfully!"

@@ -246,7 +246,7 @@ class PredictionService:
             
             # Try MLflow first
             try:
-                mlflow.set_tracking_uri("http://77.37.44.237:5003")
+                mlflow.set_tracking_uri("http://mlflow:5003")
                 
                 if model_type == 'xgb':
                     # Load best model from MLflow registry
@@ -627,7 +627,7 @@ class PredictionService:
             import os
             
             # Connect to MLflow
-            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://77.37.44.237:5003')
+            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://mlflow:5003')
             mlflow.set_tracking_uri(mlflow_tracking_uri)
             
             try:

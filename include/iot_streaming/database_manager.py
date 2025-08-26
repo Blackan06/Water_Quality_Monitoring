@@ -1014,7 +1014,7 @@ class DatabaseManager:
             import os
             
             # Kiểm tra MLflow connection
-            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://77.37.44.237:5003')
+            mlflow_tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://mlflow:5003')
             mlflow.set_tracking_uri(mlflow_tracking_uri)
             
             try:

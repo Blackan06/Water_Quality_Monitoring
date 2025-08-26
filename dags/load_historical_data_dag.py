@@ -3,6 +3,7 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from docker.types import Mount
 from datetime import datetime, timedelta
+import datetime as dt
 import logging
 import os
 os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
@@ -218,7 +219,7 @@ def save_models_to_mlflow(**context):
     logger.info("Saving models to MLflow registry...")
 
     # 1) Thiết lập MLflow tracking URI (VPS backend)
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://77.37.44.237:5003")
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5003")
     mlflow.set_tracking_uri(tracking_uri)
     
     # Handle experiment creation/selection with error handling
@@ -232,8 +233,7 @@ def save_models_to_mlflow(**context):
         logger.info("🔄 Creating new experiment...")
         
         # Create new experiment with timestamp to avoid conflicts
-        from datetime import datetime
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = dt.datetime.now().strftime('%Y%m%d_%H%M%S')
         new_experiment_name = f"water_quality_models_{timestamp}"
         
         try:
@@ -323,7 +323,7 @@ def save_models_to_mlflow(**context):
     with mlflow.start_run(run_name="comprehensive_ensemble_training"):
         # Log các tham số chung
         mlflow.log_param("best_model", best_name)
-        mlflow.log_param("training_date", datetime.now().isoformat())
+        mlflow.log_param("training_date", dt.datetime.now().isoformat())
         mlflow.log_param("feature_count", len(models))
 
         # Log metrics của tất cả models
@@ -543,7 +543,7 @@ def load_historical_data_and_train_ensemble() :
             'DB_PASSWORD': 'postgres1234',
             'DB_SCHEMA': 'public',
             'OUTPUT_MODEL_DIR': '/app/models',
-            'MLFLOW_TRACKING_URI': 'http://77.37.44.237:5003',
+            'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
             # Force Spark to use only 1 core and 1G memory for this job
             'PYSPARK_SUBMIT_ARGS': '--master local[1] --conf spark.executor.cores=1 --conf spark.cores.max=1 --conf spark.driver.memory=1g --conf spark.executor.memory=1g pyspark-shell'
         },

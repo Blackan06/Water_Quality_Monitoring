@@ -25,7 +25,7 @@ default_args = {
 def check_mlflow_connection():
     """Check if MLflow server is accessible"""
     try:
-        response = requests.get("http://77.37.44.237:5003/health", timeout=10)
+        response = requests.get("http://mlflow:5003/health", timeout=10)
         if response.status_code == 200:
             logger.info("✅ MLflow server is accessible")
             return True
@@ -59,7 +59,7 @@ def promote_best_model_to_production(**context):
             return "❌ MLflow server is not accessible"
         
         # Thiết lập MLflow client (VPS)
-        mlflow.set_tracking_uri("http://77.37.44.237:5003")
+        mlflow.set_tracking_uri("http://mlflow:5003")
         client = MlflowClient()
         
         # Tên model để promote
@@ -125,7 +125,7 @@ def promote_scaler_to_production(**context):
         if not check_mlflow_connection():
             return "❌ MLflow server is not accessible"
         
-        mlflow.set_tracking_uri("http://77.37.44.237:5003")
+        mlflow.set_tracking_uri("http://mlflow:5003")
         client = MlflowClient()
         
         model_name = "water_quality_scaler"
@@ -181,7 +181,7 @@ def verify_production_models(**context):
         if not check_mlflow_connection():
             return "❌ MLflow server is not accessible"
         
-        mlflow.set_tracking_uri("http://77.37.44.237:5003")
+        mlflow.set_tracking_uri("http://mlflow:5003")
         client = MlflowClient()
         
         models_to_check = ["water_quality_best_model", "water_quality_scaler"]
