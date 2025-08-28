@@ -11,7 +11,7 @@ airflow:
       conn_password: 
       conn_port: 9092 
       conn_extra:
-        bootstrap.servers: "77.37.44.237:19092"
+        bootstrap.servers: "77.37.44.237:9092"
         group.id: "water_quality_group"
   
   config:
