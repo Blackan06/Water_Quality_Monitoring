@@ -1,6 +1,7 @@
 services:
   api-server:
     networks:
+      - default
       - bigdata-network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -23,6 +24,7 @@ services:
 
   scheduler:
     networks:
+      - default
       - bigdata-network
     user: root
     volumes:
@@ -42,6 +44,7 @@ services:
 
   triggerer:
     networks:
+      - default
       - bigdata-network
     user: root 
     volumes:
@@ -80,7 +83,7 @@ services:
       - KAFKA_PROCESS_ROLES=broker,controller
       - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_LISTENERS=INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
-      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:19092
+      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://77.37.44.237:19092
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
