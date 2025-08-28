@@ -13,7 +13,6 @@ airflow:
       conn_extra:
         bootstrap.servers: "77.37.44.237:19092"
         group.id: "water_quality_group"
-        auto.offset.reset: "earliest"
   
   config:
     webserver:
