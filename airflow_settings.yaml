@@ -5,13 +5,13 @@ airflow:
   connections:
     - conn_id: kafka_default
       conn_type: kafka
-      conn_host: 77.37.44.237
+      conn_host: kafka
       conn_schema: 
       conn_login: 
       conn_password: 
       conn_port: 9092 
       conn_extra:
-        bootstrap.servers: "77.37.44.237:9092"
+        bootstrap.servers: "kafka:9092"
         group.id: "water_quality_group"
         auto.offset.reset: "earliest"
   

@@ -13,7 +13,8 @@ from include.iot_streaming.database_manager import db_manager
 
 # ——— Cấu hình ———
 TOPIC    = "water-quality-data"
-BROKERS  = "77.37.44.237:9092"  # VPS Kafka address
+# Ưu tiên lấy từ env khi chạy trong container, mặc định dùng nội bộ docker network
+BROKERS  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 GROUP_ID = "wqi_consumer_one"
 
 logging.basicConfig(level=logging.INFO)
