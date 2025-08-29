@@ -20,6 +20,7 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=77.37.44.237:19092&group.id=water_quality_group"
 
 
   scheduler:
@@ -40,6 +41,7 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=77.37.44.237:19092&group.id=water_quality_group"
 
 
   triggerer:
@@ -56,6 +58,7 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=77.37.44.237:19092&group.id=water_quality_group"
 
 
   # Kafka Zookeeper
