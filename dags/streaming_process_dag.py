@@ -3,7 +3,9 @@ from airflow.providers.apache.kafka.sensors.kafka import AwaitMessageTriggerFunc
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models.baseoperator import chain
-from include.iot_streaming.kafka_consumer import kafka_consumer_task, get_kafka_offset_info
+import sys
+sys.path.append('/opt/airflow/include')
+from iot_streaming.kafka_consumer import kafka_consumer_task, get_kafka_offset_info
 from airflow.exceptions import AirflowException
 from airflow.models import Variable
 from airflow.utils.log.logging_mixin import LoggingMixin
@@ -56,7 +58,9 @@ def notify_trigger(event, **kwargs):
 
 def enhanced_kafka_consumer_task(**context):
     """Enhanced consumer task that can access Kafka message from XCom and handles batch processing"""
-    from include.iot_streaming.kafka_consumer import kafka_consumer_task
+    import sys
+    sys.path.append('/opt/airflow/include')
+    from iot_streaming.kafka_consumer import kafka_consumer_task
     
     logger.info("🔄 Starting enhanced Kafka consumer task (batch processing)...")
     
@@ -88,7 +92,9 @@ def enhanced_kafka_consumer_task(**context):
 def trigger_ml_pipeline_after_processing(**context):
     """Trigger ML pipeline sau khi xử lý dữ liệu Kafka"""
     try:
-        from include.iot_streaming.database_manager import db_manager
+        import sys
+        sys.path.append('/opt/airflow/include')
+        from iot_streaming.database_manager import db_manager
         
         # Trigger ML pipeline
         success = db_manager.trigger_ml_pipeline()

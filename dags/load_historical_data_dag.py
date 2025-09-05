@@ -29,7 +29,9 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-project_root = os.getenv("PROJECT_ROOT")
+# Use container path since volumes are already mounted in docker-compose.yaml
+# ./models -> /opt/airflow/models, ./spark -> /opt/airflow/spark, etc.
+project_root = os.getenv("PROJECT_ROOT") or "/opt/airflow"
 
 # Default arguments
 default_args = {
@@ -526,14 +528,18 @@ def load_historical_data_and_train_ensemble() :
         task_id='train_model',
         image='airflow/iot_stream:ensemble',
         container_name='spark_ensemble_training',
+        command='python /app/spark/spark_jobs/train_ensemble_model.py',
         api_version='auto',
-        auto_remove=True,
-        docker_url='unix://var/run/docker.sock',
+        auto_remove='success',
+        docker_url='tcp://docker-proxy:2375',
         network_mode='bridge',
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
+        working_dir='/app',
         mounts = [
-            Mount(source=os.path.join(project_root, "models"), target="/app/models", type="bind"),
-            Mount(source=os.path.join(project_root, "spark"),  target="/app/spark",  type="bind"),
+            Mount(source="D:\\WQI\\Water_Quality_Monitoring\\models", target="/app/models", type="bind"),
+            Mount(source="D:\\WQI\\Water_Quality_Monitoring\\spark",  target="/app/spark",  type="bind"),
+            # mlruns and mlartifacts will be created in the container's working directory
+            # since they're not mounted from host
         ],
         environment={
             'DB_HOST': '194.238.16.14',
@@ -544,10 +550,11 @@ def load_historical_data_and_train_ensemble() :
             'DB_SCHEMA': 'public',
             'OUTPUT_MODEL_DIR': '/app/models',
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
+            'MLFLOW_BACKEND_STORE_URI': 'file:/app/mlruns',
+            'MLFLOW_DEFAULT_ARTIFACT_ROOT': 'file:/app/mlartifacts',
             # Force Spark to use only 1 core and 1G memory for this job
             'PYSPARK_SUBMIT_ARGS': '--master local[1] --conf spark.executor.cores=1 --conf spark.cores.max=1 --conf spark.driver.memory=1g --conf spark.executor.memory=1g pyspark-shell'
         },
-        command='python /app/spark/spark_jobs/train_ensemble_model.py',
     )
 
     # Task 2: Process training results

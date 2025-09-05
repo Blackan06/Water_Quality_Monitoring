@@ -18,7 +18,7 @@ default_args = {
     'water_quality_processing',
     default_args=default_args,
     description='Water Quality Monitoring Pipeline',
-    schedule_interval=timedelta(days=1),
+    schedule=timedelta(days=1),
     catchup=False
 )
 
@@ -27,26 +27,26 @@ default_args = {
 
 
 def water_quality_processing():
-    # chung network với host để truy cập MLflow ở localhost:5003
-    common_op_kwargs = {
-        'image': 'water-quality-processor:latest',
-        'api_version': 'auto',
-        'auto_remove': True,
-        'docker_url': 'unix://var/run/docker.sock',
-        'mount_tmp_dir': False,
-        'mounts': [model_mount],
-        'network_mode': 'host',
-        'environment': {  # <<< đây đổi thành dict
-            'MLFLOW_TRACKING_URI': 'http://mlflow:5003'
-        },
-        'dag': dag
-    }
     # mount local models folder vào /app/models
     model_mount = Mount(
         source='/Users/kiethuynhanh/Documents/THACSIDOCUMENT/Water_Quality_Monitoring/models',
         target='/app/models',
         type='bind'
     )
+    
+    # chung network với host để truy cập MLflow ở localhost:5003
+    common_op_kwargs = {
+        'image': 'water-quality-processor:latest',
+        'api_version': 'auto',
+        'auto_remove': 'success',
+        'docker_url': 'tcp://docker-proxy:2375',
+        'mount_tmp_dir': False,
+        'mounts': [model_mount],
+        'network_mode': 'host',
+        'environment': {  # <<< đây đổi thành dict
+            'MLFLOW_TRACKING_URI': 'http://mlflow:5003'
+        }
+    }
     load_data = DockerOperator(
         task_id='load_data',
         command='python /app/spark_jobs/load_data.py',

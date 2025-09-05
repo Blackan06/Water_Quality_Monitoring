@@ -68,7 +68,7 @@ memory_management:
 performance:
   # Parallel Processing
   parallel:
-    max_workers: 2  # Giảm từ 4
+    max_workers: 1  # Giảm từ 4 xuống 1
     use_multiprocessing: false  # Tắt multiprocessing để tiết kiệm memory
     
   # GPU Configuration

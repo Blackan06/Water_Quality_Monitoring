@@ -1,0 +1,14 @@
+artifact_uri: file:///app/mlartifacts/649199348232149900/31a58b8e8ba14540ba46b5e170dac121/artifacts
+end_time: 1757061298214
+entry_point_name: ''
+experiment_id: '649199348232149900'
+lifecycle_stage: active
+run_id: 31a58b8e8ba14540ba46b5e170dac121
+run_name: comprehensive_ensemble_training
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757061287239
+status: 4
+tags: []
+user_id: airflow

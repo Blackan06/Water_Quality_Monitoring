@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # --- DB config ---
 DB_CONFIG = {
-    'host': os.environ.get('DB_HOST', '149.28.145.56'),
+    'host': os.environ.get('DB_HOST', '194.238.16.14'),
     'port': os.environ.get('DB_PORT', '5432'),
     'database': os.environ.get('DB_NAME', 'wqi_db'),
     'user': os.environ.get('DB_USER', 'postgres'),

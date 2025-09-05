@@ -1,3 +1,6 @@
+import sys
+sys.path.append('/opt/airflow/include')
+
 from airflow.operators.python import PythonOperator
 from airflow.decorators import dag
 from pendulum import datetime
@@ -197,7 +200,9 @@ def train_lstm_model(**context):
     }
 
     # Khởi tạo service và train (lazy import to avoid heavy DagBag import)
-    from include.iot_streaming.lstm_training_service import LSTMTrainingService
+    import sys
+    sys.path.append('/opt/airflow/include')
+    from iot_streaming.lstm_training_service import LSTMTrainingService
     lstm_service = LSTMTrainingService()
     results = lstm_service.train_global_lstm(df, **params)
 

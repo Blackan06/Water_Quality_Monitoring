@@ -17,7 +17,7 @@ logger = logging.getLogger("train_model")
 
 # ——— Cấu hình database & output ———
 DB_CONFIG = {
-    'host':     os.getenv('DB_HOST', '149.28.145.56'),
+    'host':     os.getenv('DB_HOST', '194.238.16.14'),
     'port':     os.getenv('DB_PORT', '5432'),
     'database': os.getenv('DB_NAME', 'wqi_db'),
     'user':     os.getenv('DB_USER', 'postgres'),
