@@ -536,8 +536,8 @@ def load_historical_data_and_train_ensemble() :
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
         working_dir='/app',
         mounts = [
-            Mount(source="D:\\WQI\\Water_Quality_Monitoring\\models", target="/app/models", type="bind"),
-            Mount(source="D:\\WQI\\Water_Quality_Monitoring\\spark",  target="/app/spark",  type="bind"),
+            Mount(source=project_root, target="/app/models", type="bind"),
+            Mount(source=project_root,  target="/app/spark",  type="bind"),
             # mlruns and mlartifacts will be created in the container's working directory
             # since they're not mounted from host
         ],
