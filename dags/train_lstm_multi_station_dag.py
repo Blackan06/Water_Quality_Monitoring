@@ -63,7 +63,7 @@ def load_lstm_data(**context):
         """
     )
 
-    output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models')
+    output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models')
     os.makedirs(output_dir, exist_ok=True)
     data_path = os.path.join(output_dir, 'lstm_training_data.csv')
     # Remove existing file to avoid mixing old data
@@ -213,7 +213,7 @@ def train_lstm_model(**context):
 
     # Lưu model
     model = results.get('model')
-    output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models')
+    output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models')
     os.makedirs(output_dir, exist_ok=True)
     model_path = os.path.join(output_dir, 'lstm_global_model.h5')
     try:
@@ -231,10 +231,10 @@ def train_lstm_model(**context):
     # Persist per-sample TEST predictions for H=1 to CSV for downstream blending
     try:
         keys = results.get('test_keys_h1')
-        y_true = results.get('y_true_test_h1')
+        y_true = results.get('y_true_test_h1')  
         y_pred = results.get('y_pred_test_h1')
         if keys and y_true and y_pred and len(keys) == len(y_true) == len(y_pred):
-            out_dir = os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models')
+            out_dir = os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models')
             os.makedirs(out_dir, exist_ok=True)
             out_path = os.path.join(out_dir, 'lstm_test_predictions_h1.csv')
             import csv
@@ -251,7 +251,7 @@ def train_lstm_model(**context):
 
     # Persist LSTM test metrics to models for downstream DAGs
     try:
-        output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models')
+        output_dir = os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models')
         os.makedirs(output_dir, exist_ok=True)
         lstm_metrics_path = os.path.join(output_dir, 'lstm_metrics.json')
         test_m = results.get('test_metrics') or {}

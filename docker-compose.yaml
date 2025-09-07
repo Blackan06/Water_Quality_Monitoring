@@ -56,6 +56,13 @@ x-airflow-common:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres1234@194.238.16.14:5432/wqi_db
+    # Kafka internal listener for in-cluster communication
+    KAFKA_BOOTSTRAP_SERVERS: 'kafka:9092'
+    # Airflow connection for Kafka sensor (kafka_default)
+    AIRFLOW_CONN_KAFKA_DEFAULT: 'kafka://:@?bootstrap.servers=kafka:9092&group.id=water_quality_group&auto.offset.reset=earliest'
+    # Ensure Triggerer/Scheduler can import modules from /opt/airflow/include and parent
+    PYTHONPATH: '/opt/airflow:/opt/airflow/include'
+    MLFLOW_TRACKING_URI: 'http://mlflow:5003'
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
@@ -76,6 +83,8 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    - ./mlruns:/app/mlruns
+    - ./mlartifacts:/app/mlartifacts
     - ./models:/opt/airflow/models
     - ./data:/opt/airflow/data
     - ./include:/opt/airflow/include
@@ -123,6 +132,22 @@ services:
     command: dag-processor
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -203,6 +228,11 @@ services:
         echo "Files in shared volumes:"
         echo
         ls -la /opt/airflow/{logs,dags,plugins,config}
+        echo
+        echo "Ensuring MLflow directories exist and are writable by ${AIRFLOW_UID}:0"
+        echo
+        mkdir -p /app /app/mlruns /app/mlartifacts || true
+        chown -R "${AIRFLOW_UID}:0" /app || true
         echo
         echo "Change ownership of files in /opt/airflow to ${AIRFLOW_UID}:0"
         echo
@@ -318,7 +348,7 @@ services:
     environment:
       - SPARK_MODE=master
       - SPARK_MASTER_HOST=spark-master
-      - MLFLOW_TRACKING_URI=http://77.37.44.237:5003
+      - MLFLOW_TRACKING_URI=http://mlflow:5003
     ports:
       - "8080:8080"  # Spark UI
       - "7077:7077"  # Spark master port
@@ -355,7 +385,7 @@ services:
       - ./mlruns:/app/mlruns
       - ./mlartifacts:/app/mlartifacts
     environment:
-      - MLFLOW_TRACKING_URI=http://77.37.44.237:5003
+      - MLFLOW_TRACKING_URI=http://mlflow:5003
     entrypoint: ["mlflow", "server"]
     command:
       [

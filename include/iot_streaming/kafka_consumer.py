@@ -13,8 +13,8 @@ from include.iot_streaming.database_manager import db_manager
 
 # ——— Cấu hình ———
 TOPIC    = "water-quality-data"
-# Ưu tiên lấy từ env, mặc định dùng địa chỉ VPS public để tiện client ngoài
-BROKERS  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "77.37.44.237:19092")
+# Ưu tiên lấy từ env; mặc định dùng INTERNAL listener trong docker-compose
+BROKERS  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 GROUP_ID = "wqi_consumer_one"
 
 logging.basicConfig(level=logging.INFO)
