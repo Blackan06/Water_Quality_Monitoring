@@ -151,7 +151,9 @@ default_args = {
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=['iot_pipeline_continuous'],
-    max_active_runs=1,  # Chỉ cho phép 1 DAG run tại một thời điểm
+    max_active_tasks=1,  # Giới hạn 1 task chạy cùng lúc
+    max_active_runs=1,   # Chỉ cho phép 1 DAG run tại một thời điểm
+    concurrency=1,       # Tổng concurrency = 1
 )
 def streaming_process_dag():
     # Sensor: wait for new message on Kafka topic

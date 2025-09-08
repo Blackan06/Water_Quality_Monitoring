@@ -519,6 +519,9 @@ def show_best_model_info(**context):
     schedule=None,  # Chạy thủ công
     start_date=datetime(2024, 1, 1),
     catchup=False,
+    max_active_tasks=1,  # Giới hạn 1 task chạy cùng lúc
+    max_active_runs=1,   # Giới hạn 1 DAG run cùng lúc
+    concurrency=1,       # Tổng concurrency = 1
     tags=['water-quality', 'ensemble-ml', 'wqi-forecasting', 'xgboost', 'random-forest']
 )
 def load_historical_data_and_train_ensemble() : 
