@@ -478,8 +478,8 @@ services:
     command: TCP-LISTEN:2375,fork,reuseaddr UNIX-CONNECT:/var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "2375:2375"
+    expose:
+      - "2375"
     networks:
       - default
     group_add:
