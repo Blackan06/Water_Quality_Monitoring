@@ -37,6 +37,7 @@ def main():
         if not required.issubset(chunk.columns):
             print(f"Missing required columns. Found: {list(chunk.columns)}")
             return 2
+            
         chunk['Date'] = pd.to_datetime(chunk['Date'], errors='coerce')
         rows = []
         for _, r in chunk.iterrows():
