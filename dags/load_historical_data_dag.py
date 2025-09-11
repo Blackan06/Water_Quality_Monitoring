@@ -20,14 +20,7 @@ import numpy as np
 import pandas as pd
 
 # Cấu hình logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('logs/training.log')
-    ]
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 # Use container path since volumes are already mounted in docker-compose.yaml
 # ./models -> /opt/airflow/models, ./spark -> /opt/airflow/spark, etc.
