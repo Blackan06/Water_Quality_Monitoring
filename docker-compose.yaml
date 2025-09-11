@@ -107,14 +107,6 @@ services:
       retries: 5
       start_period: 30s
     restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
@@ -130,14 +122,6 @@ services:
       retries: 5
       start_period: 30s
     restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
@@ -153,14 +137,6 @@ services:
       retries: 5
       start_period: 30s
     restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
@@ -177,14 +153,6 @@ services:
       retries: 5
       start_period: 30s
     restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
@@ -403,14 +371,6 @@ services:
       - ./models:/app/models
     networks:
       - default
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
 
   # MLflow tracking server
   mlflow:
