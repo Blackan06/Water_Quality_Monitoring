@@ -35,7 +35,7 @@ Note: Running 'astro dev start' will start your project with the Airflow Webserv
 
 3. Access the Airflow UI for your local Airflow project. To do so, go to http://localhost:8080/ and log in with 'admin' for both your Username and Password.
 
-The system now uses an external PostgreSQL database at '194.238.16.14:5432/wqi_db'.
+You should also be able to access your Postgres Database at 'localhost:5432/postgres'.
 
 Deploy Your Project to Astronomer
 =================================
