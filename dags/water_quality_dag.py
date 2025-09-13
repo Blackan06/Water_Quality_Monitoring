@@ -39,7 +39,7 @@ def water_quality_processing():
         'image': 'water-quality-processor:latest',
         'api_version': 'auto',
         'auto_remove': 'success',
-        'docker_url': 'tcp://docker-proxy:2375',
+        'docker_url': 'unix://var/run/docker.sock',  # Sử dụng Unix socket thay vì TCP
         'mount_tmp_dir': False,
         'mounts': [model_mount],
         'network_mode': 'host',

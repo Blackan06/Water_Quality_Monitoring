@@ -68,6 +68,8 @@ x-airflow-common:
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__DAGS_FOLDER: '/opt/airflow/dags'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
+    AIRFLOW__CORE__HOSTNAME_CALLABLE: airflow.utils.net.getfqdn
+    AIRFLOW__LOGGING__WORKER_LOG_SERVER_PORT: "8793"
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -89,6 +91,7 @@ x-airflow-common:
     - ./data:/opt/airflow/data
     - ./include:/opt/airflow/include
     - ./spark:/opt/airflow/spark
+    - /var/run/docker.sock:/var/run/docker.sock:ro  # Mount Docker socket để DockerOperator có thể sử dụng
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -114,7 +117,8 @@ services:
 
   airflow-scheduler:
     <<: *airflow-common
-    command: scheduler
+    hostname: airflow-scheduler
+    command: ["bash","-lc","airflow serve_logs & exec airflow scheduler"]
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
       interval: 30s
@@ -432,18 +436,19 @@ services:
     ports:
       - "3000:3000"
 
-  docker-proxy:
-    image: alpine/socat
-    container_name: docker-proxy
-    command: TCP-LISTEN:2375,fork,reuseaddr UNIX-CONNECT:/var/run/docker.sock
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    expose:
-      - "2375"
-    networks:
-      - default
-    group_add:
-      - "root"
+  # docker-proxy service đã được loại bỏ vì sử dụng Unix socket trực tiếp
+  # docker-proxy:
+  #   image: alpine/socat
+  #   container_name: docker-proxy
+  #   command: TCP-LISTEN:2375,fork,reuseaddr UNIX-CONNECT:/var/run/docker.sock
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   expose:
+  #     - "2375"
+  #   networks:
+  #     - default
+  #   group_add:
+  #     - "root"
 
 volumes:
   mlruns:

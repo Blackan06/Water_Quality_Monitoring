@@ -19,8 +19,10 @@ import json
 import numpy as np
 import pandas as pd
 
-# Cấu hình logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 # Use container path since volumes are already mounted in docker-compose.yaml
 # ./models -> /opt/airflow/models, ./spark -> /opt/airflow/spark, etc.
@@ -526,7 +528,7 @@ def load_historical_data_and_train_ensemble() :
         command='python /app/spark/spark_jobs/train_ensemble_model.py',
         api_version='auto',
         auto_remove='success',
-        docker_url='tcp://docker-proxy:2375',
+        docker_url='unix://var/run/docker.sock',  # Sử dụng Unix socket thay vì TCP
         network_mode='bridge',
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
         working_dir='/app',
