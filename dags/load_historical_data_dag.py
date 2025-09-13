@@ -18,6 +18,7 @@ import pickle
 import json
 import numpy as np
 import pandas as pd
+import psycopg2
 
 logging.basicConfig(
     level=logging.INFO,
@@ -520,6 +521,27 @@ def show_best_model_info(**context):
 )
 def load_historical_data_and_train_ensemble() : 
     # Định nghĩa các tasks
+    def ensure_database_exists():
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST', 'postgres'),
+            port=os.getenv('DB_PORT', '5432'),
+            dbname=os.getenv('DB_ADMIN_DB', 'postgres'),
+            user=os.getenv('DB_USER', 'postgres'),
+            password=os.getenv('DB_PASSWORD', 'postgres'),
+            connect_timeout=int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
+        )
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            target_db = os.getenv('DB_NAME', 'wqi_db')
+            cur.execute("SELECT 1 FROM pg_database WHERE datname=%s", (target_db,))
+            if cur.fetchone() is None:
+                cur.execute(f"CREATE DATABASE {target_db} OWNER {os.getenv('DB_USER', 'postgres')}")
+        conn.close()
+
+    ensure_db_task = PythonOperator(
+        task_id='ensure_database_exists',
+        python_callable=ensure_database_exists,
+    )
     # Task 1: Train model
     train_model_task = DockerOperator(
         task_id='train_model',
@@ -533,17 +555,17 @@ def load_historical_data_and_train_ensemble() :
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
         working_dir='/app',
         mounts = [
-            Mount(source=project_root, target="/app/models", type="bind"),
-            Mount(source=project_root,  target="/app/spark",  type="bind"),
+            Mount(source=f"{project_root}/models", target="/app/models", type="bind"),
+            Mount(source=f"{project_root}/spark",  target="/app/spark",  type="bind"),
             # mlruns and mlartifacts will be created in the container's working directory
             # since they're not mounted from host
         ],
         environment={
-            'DB_HOST': '194.238.16.14',
+            'DB_HOST': 'postgres',
             'DB_PORT': '5432',
             'DB_NAME': 'wqi_db',
             'DB_USER': 'postgres',
-            'DB_PASSWORD': 'postgres1234',
+            'DB_PASSWORD': 'postgres',
             'DB_SCHEMA': 'public',
             'OUTPUT_MODEL_DIR': '/app/models',
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
@@ -589,7 +611,7 @@ def load_historical_data_and_train_ensemble() :
 
     # Định nghĩa dependencies
     # Trigger LSTM training asynchronously; process results immediately after ensemble training
-    train_model_task >> [trigger_lstm_training, process_results_task]
+    ensure_db_task >> train_model_task >> [trigger_lstm_training, process_results_task]
     process_results_task >> save_mlflow_task >> show_best_model_task 
 
 load_historical_data_and_train_ensemble()

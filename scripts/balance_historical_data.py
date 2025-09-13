@@ -26,10 +26,10 @@ class HistoricalDataBalancer:
         self.balanced_data = None
         
         # Cấu hình database
-        self.DB_HOST = "194.238.16.14"
+        self.DB_HOST = "postgres"
         self.DB_NAME = "wqi_db"
         self.DB_USER = "postgres"
-        self.DB_PASSWORD = "postgres1234"
+        self.DB_PASSWORD = "postgres"
         self.DB_PORT = "5432"
     
     def load_data(self) -> pd.DataFrame:

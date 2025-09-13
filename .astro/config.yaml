@@ -1,0 +1,6 @@
+airflow:
+    expose_port: "true"
+postgres:
+    port: "5434"
+project:
+    name: water-quality-monitoring

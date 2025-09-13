@@ -1,7 +1,6 @@
 services:
   api-server:
     networks:
-      - default
       - bigdata-network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -20,12 +19,12 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=77.37.44.237:19092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=194.238.16.14:19092&group.id=water_quality_group"
+
 
 
   scheduler:
     networks:
-      - default
       - bigdata-network
     user: root
     volumes:
@@ -41,12 +40,12 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=77.37.44.237:19092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=194.238.16.14:19092&group.id=water_quality_group"
+
 
 
   triggerer:
     networks:
-      - default
       - bigdata-network
     user: root 
     volumes:
@@ -55,10 +54,12 @@ services:
       - "root"
     environment:
       - PYTHONASYNCIODEBUG=1
+
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=77.37.44.237:19092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=194.238.16.14:19092&group.id=water_quality_group"
+
 
 
   # Kafka Zookeeper
@@ -68,7 +69,7 @@ services:
       - "8085:8085"
     environment:
       KAFKA_CLUSTERS_0_NAME: local-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: 194.238.16.14:9092
       KAFKA_UI_AUTH_TYPE: BASIC
       AUTH_ENABLED: "true"                # ← turn on auth module
       AUTH_TYPE: "LOGIN_FORM"             # ← basic login form
@@ -86,7 +87,7 @@ services:
       - KAFKA_PROCESS_ROLES=broker,controller
       - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_LISTENERS=INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
-      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://77.37.44.237:19092
+      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://194.238.16.14:19092
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
@@ -157,6 +158,7 @@ services:
         "--port", "5003"
       ]
 
+
   # RabbitMQ (with management UI)
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -168,8 +170,6 @@ services:
       - RABBITMQ_DEFAULT_USER=admin
       - RABBITMQ_DEFAULT_PASS=admin1234
       - RABBITMQ_DEFAULT_VHOST=/
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - bigdata-network
 
@@ -223,7 +223,6 @@ volumes:
   mlartifacts:
   grafana_data:
   kafka_data:
-  rabbitmq_data:
 
 
 

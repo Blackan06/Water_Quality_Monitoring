@@ -6,11 +6,11 @@ from psycopg2.extras import execute_values
 
 def main():
     csv_path = os.getenv('CSV_PATH', '/opt/airflow/data/balanced_wqi_data.csv')
-    host = os.getenv('DB_HOST', '194.238.16.14')
+    host = os.getenv('DB_HOST', 'postgres')
     port = os.getenv('DB_PORT', '5432')
     database = os.getenv('DB_NAME', 'wqi_db')
     user = os.getenv('DB_USER', 'postgres')
-    password = os.getenv('DB_PASSWORD', 'postgres1234')
+    password = os.getenv('DB_PASSWORD', 'postgres')
 
     if not os.path.exists(csv_path):
         print(f"CSV not found: {csv_path}")

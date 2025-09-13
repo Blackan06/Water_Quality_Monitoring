@@ -1,5 +1,3 @@
-import sys
-sys.path.append('/opt/airflow/include')
 
 from airflow.operators.python import PythonOperator
 from airflow.decorators import dag
@@ -9,7 +7,8 @@ import os
 import pandas as pd
 import psycopg2
 import json
-
+import sys
+sys.path.extend(['/opt/airflow/include', '/usr/local/airflow/include'])
 # Avoid heavy imports at module import time to prevent DagBag timeouts.
 # Import LSTMTrainingService lazily inside task functions.
 
@@ -31,11 +30,11 @@ default_args = {
 
 def _get_db_conn():
     return psycopg2.connect(
-        host=os.getenv('DB_HOST', '194.238.16.14'),
+        host=os.getenv('DB_HOST', 'postgres'),
         port=os.getenv('DB_PORT', '5432'),
         database=os.getenv('DB_NAME', 'wqi_db'),
         user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'postgres1234'),
+        password=os.getenv('DB_PASSWORD', 'postgres'),
         connect_timeout=int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
     )
 

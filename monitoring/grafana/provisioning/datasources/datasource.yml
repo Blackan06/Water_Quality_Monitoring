@@ -6,7 +6,7 @@ datasources:
   - name: PostgreSQL
     type: postgres
     access: proxy
-    url: 194.238.16.14:5432
+    url: postgres:5432
     database: wqi_db
     user: postgres
     isDefault: true

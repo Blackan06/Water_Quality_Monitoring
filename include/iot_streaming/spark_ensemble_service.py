@@ -20,14 +20,14 @@ class SparkEnsembleService:
     
     def __init__(self):
         self.env_vars = {
-            'DB_HOST': '194.238.16.14',  # Your server
+            'DB_HOST': 'postgres',  # Local postgres service
             'DB_PORT': '5432',
             'DB_NAME': 'wqi_db',
             'DB_USER': 'postgres',
-            'DB_PASSWORD': 'postgres1234',
+            'DB_PASSWORD': 'postgres',
             'DB_SCHEMA': 'public',
             'OUTPUT_MODEL_DIR': './models',
-            'MLFLOW_TRACKING_URI': 'http://localhost:5003'
+            'MLFLOW_TRACKING_URI': 'http://mlflow:5003'
         }
     
     def load_data_from_db(self):

@@ -51,7 +51,7 @@ def load_data_from_postgres(spark):
     try:
         df = (
             spark.read.format("jdbc")
-            .option("url", "jdbc:postgresql://194.238.16.14:5432/wqi_db")
+            .option("url", "jdbc:postgresql://postgres:5432/wqi_db")
             .option("dbtable", "public.historical_wqi_data")
             .option("user", "postgres")
             .option("password", "postgres1234")

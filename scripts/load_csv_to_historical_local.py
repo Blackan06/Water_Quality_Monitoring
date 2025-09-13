@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Path to balanced_wqi_data.csv (e.g. D:\\WQI\\Water_Quality_Monitoring\\data\\balanced_wqi_data.csv)",
     )
-    parser.add_argument("--db-host", default="194.238.16.14")
+    parser.add_argument("--db-host", default="postgres")
     parser.add_argument("--db-port", type=int, default=5432)
     parser.add_argument("--db-name", default="wqi_db")
     parser.add_argument("--db-user", default="postgres")

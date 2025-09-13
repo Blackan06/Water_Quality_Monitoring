@@ -27,11 +27,11 @@ default_args = {
 
 def _get_db_conn():
     return psycopg2.connect(
-        host=os.getenv('DB_HOST', '194.238.16.14'),
+        host=os.getenv('DB_HOST', 'postgres'),
         port=os.getenv('DB_PORT', '5432'),
         database=os.getenv('DB_NAME', 'wqi_db'),
         user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'postgres1234'),
+        password=os.getenv('DB_PASSWORD', 'postgres'),
         connect_timeout=int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
     )
 
@@ -260,6 +260,48 @@ def create_all_tables_explicit():
     return "All tables created/ensured"
 
 
+def ensure_database_exists():
+    """Ensure application database wqi_db exists by connecting to postgres template DB."""
+    admin_conn = psycopg2.connect(
+        host=os.getenv('DB_HOST', 'postgres'),
+        port=os.getenv('DB_PORT', '5432'),
+        dbname=os.getenv('DB_ADMIN_DB', 'postgres'),
+        user=os.getenv('DB_USER', 'postgres'),
+        password=os.getenv('DB_PASSWORD', 'postgres'),
+        connect_timeout=int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
+    )
+    admin_conn.autocommit = True
+    with admin_conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_database WHERE datname=%s", (os.getenv('DB_NAME', 'wqi_db'),))
+        if cur.fetchone() is None:
+            dbname = os.getenv('DB_NAME', 'wqi_db')
+            cur.execute(f"CREATE DATABASE {dbname} OWNER {os.getenv('DB_USER', 'postgres')}")
+    admin_conn.close()
+
+
+def seed_default_stations():
+    """Insert default stations 0, 1, 2 if they do not exist."""
+    stations = [
+        (0, 'Station 0', 'Default location 0', None, None, 'Seeded by DAG'),
+        (1, 'Station 1', 'Default location 1', None, None, 'Seeded by DAG'),
+        (2, 'Station 2', 'Default location 2', None, None, 'Seeded by DAG'),
+    ]
+    with _get_db_conn() as conn:
+        with conn.cursor() as cur:
+            for station in stations:
+                cur.execute(
+                    """
+                    INSERT INTO monitoring_stations (
+                        station_id, station_name, location, latitude, longitude, description
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (station_id) DO NOTHING
+                    """,
+                    station,
+                )
+        conn.commit()
+    return "Seeded default stations: 0, 1, 2"
+
+
 @dag(
     dag_id='create_all_tables',
     default_args=default_args,
@@ -270,14 +312,22 @@ def create_all_tables_explicit():
     tags=['db', 'bootstrap']
 )
 def create_all_tables():
+    ensure_db = PythonOperator(
+        task_id='ensure_database_exists',
+        python_callable=ensure_database_exists,
+    )
     create = PythonOperator(
         task_id='create_all_tables_explicit',
         python_callable=create_all_tables_explicit,
     )
+    seed_stations = PythonOperator(
+        task_id='seed_default_stations',
+        python_callable=seed_default_stations,
+    )
 
     def load_historical_from_csv():
         """Load /opt/airflow/data/balanced_wqi_data.csv into historical_wqi_data."""
-        csv_path_container = 'D:\WQI\Water_Quality_Monitoring\data\balanced_wqi_data.csv'
+        csv_path_container = '/usr/local/airflow/data/balanced_wqi_data.csv'
         if not os.path.exists(csv_path_container):
             raise FileNotFoundError(f"CSV not found at {csv_path_container}. Ensure ./data is mounted.")
 
@@ -330,7 +380,7 @@ def create_all_tables():
         python_callable=load_historical_from_csv,
     )
 
-    create >> load_hist
+    ensure_db >> create >> seed_stations >> load_hist
 
 
 create_all_tables()

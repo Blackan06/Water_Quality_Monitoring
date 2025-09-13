@@ -29,18 +29,18 @@ SparkXGBRegressorModel.launch_tracker_on_driver = _no_op_launch
 # ——— Cấu hình ———
 MODEL_PATH       = os.getenv('MODEL_PATH', '/opt/bitnami/spark/models/best_xgb_pipeline')
 ES_RESOURCE      = os.getenv('ES_RESOURCE', 'water_quality')
-BOOTSTRAP_SERVERS= os.getenv('BOOTSTRAP_SERVERS_CONS', '77.37.44.237:9092')  # VPS Kafka address
+BOOTSTRAP_SERVERS= os.getenv('BOOTSTRAP_SERVERS_CONS', '194.238.16.14:9092')  # Kafka address
 TOPIC_NAME       = os.getenv('TOPIC_NAME_CONS', 'water-quality-data')
 CHECKPOINT_LOC   = os.getenv('CHECKPOINT_LOCATION', '/tmp/spark/checkpoint_predict')
 FORECAST_HORIZON = int(os.getenv('FORECAST_HORIZON', '12'))  # tháng
 
 # Cấu hình kết nối đến PostgreSQL
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', '194.238.16.14'),
+    'host': os.getenv('DB_HOST', 'postgres'),
     'port': os.getenv('DB_PORT', '5432'),
     'database': os.getenv('DB_NAME', 'wqi_db'),
     'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'postgres1234')
+    'password': os.getenv('DB_PASSWORD', 'postgres')
 }
 
 # Cấu hình OpenAI API

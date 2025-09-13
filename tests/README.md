@@ -116,7 +116,7 @@ python tests/dags/test_dag_example.py
 ### `tests/kafka/test_kafka_connection.py` (Script)
 - **Mục đích**: Kiểm tra kết nối Kafka cơ bản
 - **Chức năng**:
-  - Test kết nối đến Kafka broker (77.37.44.237:9092)
+  - Test kết nối đến Kafka broker (194.238.16.14:9092)
   - Test tạo/xóa topic
   - Test producer gửi message
   - Test consumer nhận message
@@ -155,7 +155,7 @@ pip install kafka-python requests psycopg2-binary elasticsearch pytest pandas nu
 ```
 
 ### Services cần chạy:
-- Kafka broker tại `77.37.44.237:9092`
+- Kafka broker tại `194.238.16.14:9092`
 - Docker containers cho monitoring services
 - Airflow services
 - MLflow tracking server
@@ -238,7 +238,7 @@ tests/dags/test_streaming_dag.py::test_streaming_dag_has_kafka_sensor PASSED
 
 ### 1. Không thể kết nối Kafka
 - Kiểm tra Kafka broker có đang chạy không
-- Kiểm tra network connectivity đến `77.37.44.237:9092`
+- Kiểm tra network connectivity đến `194.238.16.14:9092`
 - Kiểm tra firewall settings
 
 ### 2. Không thể kết nối monitoring services
