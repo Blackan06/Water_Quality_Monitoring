@@ -49,12 +49,20 @@ def create_spark_session():
 def load_data_from_postgres(spark):
     """Load dữ liệu WQI lịch sử từ PostgreSQL."""
     try:
+        # Read DB connection settings from environment with sensible defaults for Docker network
+        db_host = os.getenv('DB_HOST', 'postgres')
+        db_port = os.getenv('DB_PORT', '5432')
+        db_name = os.getenv('DB_NAME', 'wqi_db')
+        db_user = os.getenv('DB_USER', 'postgres')
+        db_password = os.getenv('DB_PASSWORD', 'postgres')
+        jdbc_url = f"jdbc:postgresql://{db_host}:{db_port}/{db_name}"
+        
         df = (
             spark.read.format("jdbc")
-            .option("url", "jdbc:postgresql://postgres:5432/wqi_db")
+            .option("url", jdbc_url)
             .option("dbtable", "public.historical_wqi_data")
-            .option("user", "postgres")
-            .option("password", "postgres1234")
+            .option("user", db_user)
+            .option("password", db_password)
             .option("driver", "org.postgresql.Driver")
             .load()
         )

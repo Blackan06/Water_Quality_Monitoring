@@ -16,7 +16,7 @@ DB_CONFIG = {
     'port': os.environ.get('DB_PORT', '5432'),
     'database': os.environ.get('DB_NAME', 'wqi_db'),
     'user': os.environ.get('DB_USER', 'postgres'),
-    'password': os.environ.get('DB_PASSWORD', 'postgres1234'),
+    'password': os.environ.get('DB_PASSWORD', 'postgres'),
     'schema': os.environ.get('DB_SCHEMA', 'public')
 }
 TABLE_FEATURE = f"{DB_CONFIG['schema']}.water_quality_feature"

@@ -551,7 +551,7 @@ def load_historical_data_and_train_ensemble() :
         api_version='auto',
         auto_remove='success',
         docker_url='unix://var/run/docker.sock',  # Sử dụng Unix socket thay vì TCP
-        network_mode='bridge',
+        network_mode='bigdata-network',
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
         working_dir='/app',
         mounts = [

@@ -42,7 +42,7 @@ def water_quality_processing():
         'docker_url': 'unix://var/run/docker.sock',  # Sử dụng Unix socket thay vì TCP
         'mount_tmp_dir': False,
         'mounts': [model_mount],
-        'network_mode': 'host',
+        'network_mode': 'bigdata-network',
         'environment': {  # <<< đây đổi thành dict
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003'
         }

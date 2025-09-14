@@ -52,7 +52,7 @@ def test_kafka_broker_connection():
         from kafka import KafkaAdminClient
         from kafka.errors import NoBrokersAvailable
         
-        admin_client = KafkaAdminClient(bootstrap_servers="194.238.16.14:9092")
+        admin_client = KafkaAdminClient(bootstrap_servers="kafka:9092")
         topics = admin_client.list_topics()
         admin_client.close()
         
@@ -70,7 +70,7 @@ def test_kafka_topic_exists():
     try:
         from kafka import KafkaAdminClient
         
-        admin_client = KafkaAdminClient(bootstrap_servers="194.238.16.14:9092")
+        admin_client = KafkaAdminClient(bootstrap_servers="kafka:9092")
         topics = admin_client.list_topics()
         admin_client.close()
         
@@ -171,7 +171,7 @@ def test_kafka_message_format():
         
         # Test producer
         producer = KafkaProducer(
-            bootstrap_servers="194.238.16.14:9092",
+            bootstrap_servers="kafka:9092",
             value_serializer=lambda x: json.dumps(x).encode('utf-8'),
             acks='all'
         )
@@ -200,7 +200,7 @@ def test_kafka_consumer_group():
         
         consumer = KafkaConsumer(
             "water-quality-data",
-            bootstrap_servers="194.238.16.14:9092",
+            bootstrap_servers="kafka:9092",
             auto_offset_reset='earliest',
             enable_auto_commit=True,
             group_id="test_group_pytest",
@@ -232,10 +232,10 @@ def test_airflow_kafka_connection_config():
         kafka_config = {
             "conn_id": "kafka_default",
             "conn_type": "kafka",
-            "conn_host": "194.238.16.14",
+            "conn_host": "kafka",
             "conn_port": 9092,
             "conn_extra": {
-                "bootstrap.servers": "194.238.16.14:9092",
+                "bootstrap.servers": "kafka:9092",
                 "group.id": "water_quality_group",
                 "auto.offset.reset": "earliest"
             }
@@ -281,7 +281,7 @@ def test_kafka_topic_metadata():
         from kafka import KafkaAdminClient
         from kafka.admin import ConfigResource, ConfigResourceType
         
-        admin_client = KafkaAdminClient(bootstrap_servers="194.238.16.14:9092")
+        admin_client = KafkaAdminClient(bootstrap_servers="kafka:9092")
         
         # Get topic metadata
         resource = ConfigResource(ConfigResourceType.TOPIC, "water-quality-data")
@@ -304,7 +304,7 @@ def test_kafka_producer_serialization():
         import json
         
         producer = KafkaProducer(
-            bootstrap_servers="194.238.16.14:9092",
+            bootstrap_servers="kafka:9092",
             value_serializer=lambda x: json.dumps(x).encode('utf-8'),
             acks='all'
         )

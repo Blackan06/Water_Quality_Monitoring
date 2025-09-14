@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Cấu hình Kafka
-BROKERS = "194.238.16.14:9092"
+BROKERS = "kafka:9092"
 TOPIC = "water-quality-data"
 GROUP_ID = "test_consumer_group"
 

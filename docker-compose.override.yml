@@ -19,7 +19,7 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=194.238.16.14:19092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_group"
 
 
 
@@ -40,7 +40,7 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=194.238.16.14:19092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_group"
 
 
 
@@ -58,7 +58,7 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=194.238.16.14:19092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_group"
 
 
 
@@ -69,7 +69,7 @@ services:
       - "8085:8085"
     environment:
       KAFKA_CLUSTERS_0_NAME: local-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: 194.238.16.14:9092
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_UI_AUTH_TYPE: BASIC
       AUTH_ENABLED: "true"                # ← turn on auth module
       AUTH_TYPE: "LOGIN_FORM"             # ← basic login form
@@ -111,7 +111,7 @@ services:
     environment:
       - SPARK_MODE=master
       - SPARK_MASTER_HOST=spark-master
-      - MLFLOW_TRACKING_URI=http://77.37.44.237:5003
+      - MLFLOW_TRACKING_URI=http://mlflow:5003
     ports:
       - "8080:8080"  # Spark UI
       - "7077:7077"  # Spark master port
@@ -148,7 +148,7 @@ services:
       - ./mlruns:/app/mlruns
       - ./mlartifacts:/app/mlartifacts
     environment:
-      - MLFLOW_TRACKING_URI=http://77.37.44.237:5003
+      - MLFLOW_TRACKING_URI=http://mlflow:5003
     entrypoint: ["mlflow", "server"]
     command:
       [
@@ -179,7 +179,6 @@ services:
     image: grafana/grafana:9.5.2
     networks:
       - bigdata-network
-      - water-quality-monitoring
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
       - ./monitoring/grafana/dashboards:/etc/grafana/dashboards
@@ -195,29 +194,16 @@ services:
       - GF_SECURITY_ALLOW_EMBEDDING=true
     ports:
       - "3000:3000"
-
-
-
-  docker-proxy:
-    image: alpine/socat
-    container_name: docker-proxy
-    command: TCP-LISTEN:2375,fork,reuseaddr UNIX-CONNECT:/var/run/docker.sock
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "2375:2375"
+  postgres:
     networks:
       - bigdata-network
-    group_add:
-      - "root"
+
+
 
 networks:
   bigdata-network:
+    name: bigdata-network
     driver: bridge
-  water-quality-monitoring:
-    name: water-quality-monitoring
-    driver: bridge
-
 volumes:
   mlruns:
   mlartifacts:

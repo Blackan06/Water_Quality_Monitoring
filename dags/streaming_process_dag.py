@@ -4,7 +4,13 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models.baseoperator import chain
 import sys
-sys.path.append('/opt/airflow/include')
+import os
+# Ensure both common Airflow homes are in PYTHONPATH so that
+# `iot_streaming` (from include) and `include.iot_streaming` resolve
+_airflow_home = os.getenv('AIRFLOW_HOME', '/opt/airflow')
+for _p in [f"{_airflow_home}/include", _airflow_home, "/usr/local/airflow/include", "/usr/local/airflow"]:
+    if _p not in sys.path:
+        sys.path.append(_p)
 from iot_streaming.kafka_consumer import kafka_consumer_task, get_kafka_offset_info
 from airflow.exceptions import AirflowException
 from airflow.models import Variable
@@ -59,7 +65,11 @@ def notify_trigger(event, **kwargs):
 def enhanced_kafka_consumer_task(**context):
     """Enhanced consumer task that can access Kafka message from XCom and handles batch processing"""
     import sys
-    sys.path.append('/opt/airflow/include')
+    import os
+    _airflow_home = os.getenv('AIRFLOW_HOME', '/opt/airflow')
+    for _p in [f"{_airflow_home}/include", _airflow_home, "/usr/local/airflow/include", "/usr/local/airflow"]:
+        if _p not in sys.path:
+            sys.path.append(_p)
     from iot_streaming.kafka_consumer import kafka_consumer_task
     
     logger.info("🔄 Starting enhanced Kafka consumer task (batch processing)...")
@@ -93,7 +103,11 @@ def trigger_ml_pipeline_after_processing(**context):
     """Trigger ML pipeline sau khi xử lý dữ liệu Kafka"""
     try:
         import sys
-        sys.path.append('/opt/airflow/include')
+        import os
+        _airflow_home = os.getenv('AIRFLOW_HOME', '/opt/airflow')
+        for _p in [f"{_airflow_home}/include", _airflow_home, "/usr/local/airflow/include", "/usr/local/airflow"]:
+            if _p not in sys.path:
+                sys.path.append(_p)
         from iot_streaming.database_manager import db_manager
         
         # Trigger ML pipeline
