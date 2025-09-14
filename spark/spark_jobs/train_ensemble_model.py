@@ -50,7 +50,7 @@ def load_data_from_postgres(spark):
     """Load dữ liệu WQI lịch sử từ PostgreSQL."""
     try:
         # Read DB connection settings from environment with sensible defaults for Docker network
-        db_host = os.getenv('DB_HOST', 'postgres')
+        db_host = os.getenv('DB_HOST', '194.238.16.14')
         db_port = os.getenv('DB_PORT', '5432')
         db_name = os.getenv('DB_NAME', 'wqi_db')
         db_user = os.getenv('DB_USER', 'postgres')
@@ -69,7 +69,7 @@ def load_data_from_postgres(spark):
         logger.info(f"✅ Đã load {df.count()} dòng từ Postgres")
         return df
     except Exception as e:
-        logger.error(f"❌ Load từ Postgres thất bại: {e}")
+        logger.error(f"❌ Load từ Postgres thất bại abc: {e}")
         raise
 
 

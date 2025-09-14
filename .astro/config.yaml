@@ -1,6 +1,9 @@
 airflow:
     expose_port: "true"
-postgres:
-    port: "5434"
+
 project:
     name: water-quality-monitoring
+webserver:
+    port: "8089"
+api-server:
+    port: "8089"

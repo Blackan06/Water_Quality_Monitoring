@@ -561,12 +561,7 @@ def load_historical_data_and_train_ensemble() :
             # since they're not mounted from host
         ],
         environment={
-            'DB_HOST': 'postgres',
-            'DB_PORT': '5432',
-            'DB_NAME': 'wqi_db',
-            'DB_USER': 'postgres',
-            'DB_PASSWORD': 'postgres',
-            'DB_SCHEMA': 'public',
+          
             'OUTPUT_MODEL_DIR': '/app/models',
             'MLFLOW_TRACKING_URI': 'http://mlflow:5003',
             'MLFLOW_BACKEND_STORE_URI': 'file:/app/mlruns',
