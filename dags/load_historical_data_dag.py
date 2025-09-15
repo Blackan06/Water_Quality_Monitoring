@@ -523,7 +523,7 @@ def load_historical_data_and_train_ensemble() :
     # Định nghĩa các tasks
     def ensure_database_exists():
         conn = psycopg2.connect(
-            host=os.getenv('DB_HOST', 'postgres'),
+            host=os.getenv('DB_HOST', '194.238.16.14'),
             port=os.getenv('DB_PORT', '5432'),
             dbname=os.getenv('DB_ADMIN_DB', 'postgres'),
             user=os.getenv('DB_USER', 'postgres'),

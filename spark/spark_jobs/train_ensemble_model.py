@@ -69,7 +69,7 @@ def load_data_from_postgres(spark):
         logger.info(f"✅ Đã load {df.count()} dòng từ Postgres")
         return df
     except Exception as e:
-        logger.error(f"❌ Load từ Postgres thất bại abc: {e}")
+        logger.error(f"❌ Load từ Postgres thất bại abc: {e} + {jdbc_url} ")
         raise
 
 

@@ -15,7 +15,8 @@ from include.iot_streaming.database_manager import db_manager
 TOPIC    = "water-quality-data"
 # Ưu tiên lấy từ env; mặc định dùng INTERNAL listener trong docker-compose
 BROKERS  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-GROUP_ID = "wqi_consumer_one"
+# Cho phép override group id qua env để đồng bộ với Airflow/Astronomer
+GROUP_ID = os.getenv("KAFKA_GROUP_ID", "water_quality_group")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -135,6 +136,17 @@ def kafka_consumer_task(**kwargs):
         value_deserializer=lambda x: loads(x.decode('utf-8'))
     )
 
+    # Đảm bảo join group/assignment để hiển thị trên Kafka UI khi task chạy ngắn
+    try:
+        consumer.poll(timeout_ms=1000)  # trigger group join
+        assigned = consumer.assignment()
+        if assigned:
+            logger.info(f"Assigned partitions on start: {list(assigned)}")
+        else:
+            logger.info("No partitions assigned yet (topic may be empty or metadata not fetched)")
+    except Exception as e:
+        logger.warning(f"Initial poll for group join failed: {e}")
+
     records = []
     messages = []
     processed_count = 0
@@ -160,6 +172,11 @@ def kafka_consumer_task(**kwargs):
 
     if not records:
         logger.warning("No records consumed within timeout.")
+        # Giữ kết nối một nhịp để group kịp đăng ký và hiển thị
+        try:
+            consumer.poll(timeout_ms=1000)
+        except Exception:
+            pass
         consumer.close()
         return "No records consumed"
     

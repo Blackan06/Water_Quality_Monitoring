@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class DatabaseManager:
     def __init__(self):
         self.db_config = {
-            'host': os.getenv('DB_HOST', 'postgres'),
+            'host': os.getenv('DB_HOST', '194.238.16.14'),
             'port': os.getenv('DB_PORT', '5432'),
             'database': os.getenv('DB_NAME', 'wqi_db'),
             'user': os.getenv('DB_USER', 'postgres'),

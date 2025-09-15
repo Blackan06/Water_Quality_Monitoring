@@ -19,7 +19,8 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_sensor"
+      - KAFKA_GROUP_ID=water_quality_group
 
 
 
@@ -40,7 +41,8 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_sensor"
+      - KAFKA_GROUP_ID=water_quality_group
 
 
 
@@ -58,7 +60,8 @@ services:
       - RABBITMQ_MGMT_URL=http://rabbitmq:15672
       - RABBITMQ_USER=admin
       - RABBITMQ_PASS=admin1234
-      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_group"
+      - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_sensor"
+      - KAFKA_GROUP_ID=water_quality_group
 
 
 
@@ -87,7 +90,7 @@ services:
       - KAFKA_PROCESS_ROLES=broker,controller
       - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_LISTENERS=INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
-      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://194.238.16.14:19092
+      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://host.docker.internal:19092
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
@@ -98,6 +101,11 @@ services:
       - KAFKA_NUM_PARTITIONS=1
       - KAFKA_LOG_CLEANER_THREADS=1
       - KAFKA_BACKGROUND_THREADS=1
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=1
+      - KAFKA_MIN_INSYNC_REPLICAS=1
     ports:
       - "19092:19092"
     volumes:
