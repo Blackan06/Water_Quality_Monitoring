@@ -125,27 +125,61 @@ def trigger_ml_pipeline_after_processing(**context):
         return f"Error: {str(e)}"
 
 def trigger_external_dag(**context):
-    """Trigger external ML pipeline DAG"""
+    """Trigger external ML pipeline DAG reliably from Triggerer.
+
+    Target DAG id: streaming_data_processor (defined in streaming_data_processor_dag.py)
+    """
+    dag_id = "streaming_data_processor"
+    run_conf = {}
+    # Try to include kafka message from XCom if available
     try:
-        # Get message from XCom
-        kafka_message = context['ti'].xcom_pull(key='kafka_message', task_ids='wait_for_kafka')
-        
-        # Create trigger operator for ML pipeline (external DAG)
-        trigger = TriggerDagRunOperator(
-            task_id="trigger_ml_pipeline",
-            trigger_dag_id="streaming_data_processor",
-            conf={"kafka_msg": kafka_message},
-            wait_for_completion=False,
-        )
-        
-        # Execute trigger
-        trigger.execute(context=context)
-        logger.info("✅ Successfully triggered external ML pipeline DAG")
-        return "External DAG triggered successfully"
-        
-    except Exception as e:
-        logger.error(f"❌ Error triggering external DAG: {str(e)}")
-        return f"Error: {str(e)}"
+        if 'ti' in context:
+            kafka_message = context['ti'].xcom_pull(key='kafka_message', task_ids='wait_for_kafka')
+            if kafka_message is not None:
+                run_conf["kafka_msg"] = kafka_message
+    except Exception:
+        pass
+
+    # 1) Local client (no network/auth)
+    try:
+        from airflow.api.client.local_client import Client as LocalClient
+        client = LocalClient(None)
+        run_id = f"manual__{datetime.now().isoformat()}"
+        client.trigger_dag(dag_id=dag_id, run_id=run_id, conf=run_conf or None)
+        logger.info("✅ Triggered external DAG via local_client")
+        return "External DAG triggered (local_client)"
+    except Exception as e_local:
+        logger.warning(f"LocalClient trigger failed: {e_local}")
+
+    # 2) Airflow CLI inside container
+    try:
+        import subprocess, json as _json
+        run_id = f"manual__{datetime.now().isoformat()}"
+        cmd = ["airflow", "dags", "trigger", dag_id, "--run-id", run_id]
+        if run_conf:
+            cmd += ["--conf", _json.dumps(run_conf)]
+        subprocess.run(cmd, check=True, capture_output=True)
+        logger.info("✅ Triggered external DAG via Airflow CLI")
+        return "External DAG triggered (CLI)"
+    except Exception as e_cli:
+        logger.warning(f"CLI trigger failed: {e_cli}")
+
+    # 3) REST API fallback (requires API enabled)
+    try:
+        import requests
+        base_url = os.getenv('AIRFLOW__WEBSERVER__BASE_URL', 'http://api-server:8080')
+        url = f"{base_url}/api/v1/dags/{dag_id}/dagRuns"
+        payload = {"conf": run_conf} if run_conf else {}
+        user = os.getenv('AIRFLOW_API_USER')
+        pwd = os.getenv('AIRFLOW_API_PASSWORD')
+        auth = (user, pwd) if user and pwd else None
+        resp = requests.post(url, json=payload, auth=auth, timeout=10)
+        resp.raise_for_status()
+        logger.info("✅ Triggered external DAG via REST API")
+        return "External DAG triggered (REST)"
+    except Exception as e_rest:
+        logger.error(f"❌ Error triggering external DAG: {e_rest}")
+        return f"Error: {e_rest}"
 
 # simple apply function
 def always_true(event, **kwargs):

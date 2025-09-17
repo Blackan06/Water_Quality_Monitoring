@@ -19,18 +19,20 @@ class DatabaseManager:
         }
         self.init_database()
 
-    def get_connection(self):
-        """Tạo kết nối đến database với retry logic"""
+    def get_connection(self, autocommit: bool = False):
+        """Tạo kết nối đến database với retry logic.
+        Khi autocommit=True, mỗi câu lệnh sẽ được commit ngay (phù hợp cho DDL/init)."""
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 conn = psycopg2.connect(**self.db_config)
+                conn.autocommit = autocommit
                 # Test connection
                 cur = conn.cursor()
                 cur.execute("SELECT 1")
                 cur.fetchone()
                 cur.close()
-                logger.info(f"✅ Database connection successful on attempt {attempt + 1}")
+                logger.info(f"✅ Database connection successful on attempt {attempt + 1} (autocommit={autocommit})")
                 return conn
             except Exception as e:
                 logger.warning(f"⚠️ Database connection attempt {attempt + 1}/{max_retries} failed: {e}")
@@ -44,8 +46,11 @@ class DatabaseManager:
 
     def init_database(self):
         """Khởi tạo các bảng cần thiết"""
+        conn = None
+        cur = None
         try:
-            conn = self.get_connection()
+            # DDL nên chạy autocommit để tránh kẹt transaction khi 1 lệnh lỗi
+            conn = self.get_connection(autocommit=True)
             if not conn:
                 return
             
@@ -238,14 +243,31 @@ class DatabaseManager:
                 # Constraint đã tồn tại hoặc có lỗi khác
                 logger.debug(f"Unique constraint may already exist: {e}")
             
-            conn.commit()
+            # autocommit=True nên không cần commit thủ công
             cur.close()
             conn.close()
             
             logger.info("Database tables initialized successfully")
             
         except Exception as e:
+            # Nếu không autocommit được cấu hình, cố gắng rollback để dọn trạng thái
+            try:
+                if conn and not conn.closed:
+                    conn.rollback()
+            except Exception:
+                pass
             logger.error(f"Error initializing database: {e}")
+        finally:
+            try:
+                if cur and not cur.closed:
+                    cur.close()
+            except Exception:
+                pass
+            try:
+                if conn and not conn.closed:
+                    conn.close()
+            except Exception:
+                pass
 
     def insert_station(self, station_data):
         """Thêm trạm quan trắc mới"""
