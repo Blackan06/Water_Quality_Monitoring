@@ -8,6 +8,8 @@ services:
     user: root
     group_add:
       - "root"
+    cpus: "0.50"
+    mem_limit: "1g"
     environment:
       - AIRFLOW__WEBSERVER__WORKERS=1
       - AIRFLOW__WEBSERVER__WORKER_CLASS=gthread
@@ -33,6 +35,8 @@ services:
       - ./models:/usr/local/airflow/models
     group_add:
       - "root"
+    cpus: "0.50"
+    mem_limit: "1g"
     environment:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - AIRFLOW__CORE__LAZY_LOAD_PLUGINS=True
@@ -43,6 +47,10 @@ services:
       - RABBITMQ_PASS=admin1234
       - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_sensor"
       - KAFKA_GROUP_ID=water_quality_group
+      - AIRFLOW__SCHEDULER__PARSING_PROCESSES=1
+      - AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL=30
+      - AIRFLOW__CORE__PARALLELISM=4
+      - AIRFLOW__CORE__DAG_CONCURRENCY=2
 
 
 
@@ -54,6 +62,8 @@ services:
       - ./models:/usr/local/airflow/models
     group_add:
       - "root"
+    cpus: "0.25"
+    mem_limit: "512m"
     environment:
       - PYTHONASYNCIODEBUG=1
 
@@ -68,6 +78,8 @@ services:
   # Kafka Zookeeper
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
+    cpus: "0.50"
+    mem_limit: "512m"
     ports:
       - "8085:8085"
     environment:
@@ -106,6 +118,8 @@ services:
       - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
       - KAFKA_DEFAULT_REPLICATION_FACTOR=1
       - KAFKA_MIN_INSYNC_REPLICAS=1
+    cpus: "1.0"
+    mem_limit: "2g"
     ports:
       - "19092:19092"
     volumes:
@@ -116,6 +130,8 @@ services:
   spark-master:
     image: bitnami/spark:latest
     container_name: spark-master
+    cpus: "0.50"
+    mem_limit: "1g"
     environment:
       - SPARK_MODE=master
       - SPARK_MASTER_HOST=spark-master
@@ -131,6 +147,8 @@ services:
   spark-worker:
     image: bitnami/spark:latest
     container_name: spark-worker
+    cpus: "1.0"
+    mem_limit: "1536m"
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER=spark://spark-master:7077
@@ -148,6 +166,8 @@ services:
     image: bitnami/mlflow:latest
     container_name: mlflow
     user: root              # hoặc root, để chắc MLflow có quyền ghi
+    cpus: "0.25"
+    mem_limit: "512m"
     ports:
       - "5003:5003"
     networks:
@@ -171,6 +191,8 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: rabbitmq
+    cpus: "0.50"
+    mem_limit: "1g"
     ports:
       - "5672:5672"     # AMQP
       - "15672:15672"   # Management UI
@@ -185,6 +207,8 @@ services:
   # === Grafana ===
   grafana:
     image: grafana/grafana:9.5.2
+    cpus: "0.25"
+    mem_limit: "512m"
     networks:
       - bigdata-network
     volumes:
@@ -203,6 +227,28 @@ services:
     ports:
       - "3000:3000"
   postgres:
+    cpus: "1.0"
+    mem_limit: "2g"
+    command:
+    - "postgres"
+    - "-c"
+    - "shared_buffers=512MB"
+    - "-c"
+    - "work_mem=4MB"
+    - "-c"
+    - "maintenance_work_mem=64MB"
+    - "-c"
+    - "effective_cache_size=1536MB"
+    - "-c"
+    - "max_connections=100"
+    - "-c"
+    - "jit=off"
+    - "-c"
+    - "autovacuum_naptime=30s"
+    - "-c"
+    - "autovacuum_vacuum_cost_limit=200"
+    - "-c"
+    - "shared_preload_libraries=pg_stat_statements"
     networks:
       - bigdata-network
 
