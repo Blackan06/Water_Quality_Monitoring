@@ -400,6 +400,7 @@ class LSTMTrainingService:
             
             # Create and train model (multi-horizon with station embedding)
             n_stations = int(len(unique_station_ids))
+            # Disable Conv1D to preserve Masking → LSTM mask behavior
             model = self.create_lstm_model_with_station(
                 input_shape=(X_train.shape[1], X_train.shape[2]),
                 n_stations=n_stations,
@@ -409,8 +410,8 @@ class LSTMTrainingService:
                 dropout_rate=dropout_rate,
                 learning_rate=learning_rate,
                 l2_weight=l2_weight,
-                conv_filters=conv_filters,
-                conv_kernel_size=conv_kernel_size,
+                conv_filters=0,
+                conv_kernel_size=0,
                 recurrent_dropout=min(0.5, max(0.0, dropout_rate)),
                 spatial_dropout1d_rate=0.1,
                 gaussian_noise_std=0.03,
@@ -464,9 +465,10 @@ class LSTMTrainingService:
                 monitor='loss', factor=0.5, patience=5, min_lr=1e-5
             )
             
-            # Train model
+            # Train model with validation to capture val curves for plotting
             history = model.fit(
                 {'seq': X_train_scaled, 'station_idx': station_train_idx_emb}, y_train,
+                validation_data=({'seq': X_val_scaled, 'station_idx': station_val_idx_emb}, y_val),
                 epochs=epochs,
                 batch_size=batch_size,
                 callbacks=[early_stopping, reduce_lr],
@@ -496,12 +498,13 @@ class LSTMTrainingService:
 
             # Reconstruct cumulative WQI per horizon
             def reconstruct(last_vec: np.ndarray, deltas: np.ndarray, gam: np.ndarray) -> np.ndarray:
-                N = deltas.shape[0]
-                Hh = deltas.shape[1]
-                out = np.empty_like(deltas)
-                prev = last_vec.copy()
+                N = int(deltas.shape[0])
+                Hh = int(deltas.shape[1]) if deltas.ndim == 2 else 1
+                out = np.empty((N, Hh), dtype=np.float32)
+                prev = last_vec.reshape(-1).astype(np.float32)
                 for h in range(Hh):
-                    prev = prev + gam[h] * deltas[:, h]
+                    step = gam[h] * deltas[:, h].astype(np.float32)
+                    prev = prev + step
                     out[:, h] = prev
                 return out
 
@@ -580,12 +583,12 @@ class LSTMTrainingService:
 
             # True cumulative
             def reconstruct_true(last_vec: np.ndarray, deltas_true: np.ndarray) -> np.ndarray:
-                N = deltas_true.shape[0]
-                Hh = deltas_true.shape[1]
-                out = np.empty_like(deltas_true)
-                prev = last_vec.copy()
+                N = int(deltas_true.shape[0])
+                Hh = int(deltas_true.shape[1]) if deltas_true.ndim == 2 else 1
+                out = np.empty((N, Hh), dtype=np.float32)
+                prev = last_vec.reshape(-1).astype(np.float32)
                 for h in range(Hh):
-                    prev = prev + deltas_true[:, h]
+                    prev = prev + deltas_true[:, h].astype(np.float32)
                     out[:, h] = prev
                 return out
 
@@ -711,6 +714,67 @@ class LSTMTrainingService:
             logger.info(f"  Train R²: {train_r2:.4f}, MAE: {train_mae:.4f}")
             logger.info(f"  Test R²: {val_r2:.4f}, MAE: {val_mae:.4f}")
             
+            # Save training curves to images folder
+            try:
+                import os
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                # Try multiple possible model dirs to ensure visibility from host
+                dir_candidates = []
+                env_dir = os.getenv('AIRFLOW_MODELS_DIR')
+                if env_dir:
+                    dir_candidates.append(env_dir)
+                dir_candidates.extend(['/usr/local/airflow/models', '/opt/airflow/models', os.path.join(os.getcwd(), 'models')])
+                images_dirs = []
+                for base in dir_candidates:
+                    try:
+                        if base is None:
+                            continue
+                        img_dir = os.path.join(base, 'images')
+                        os.makedirs(img_dir, exist_ok=True)
+                        images_dirs.append(img_dir)
+                    except Exception:
+                        continue
+                # Loss curves
+                fig, ax = plt.subplots(figsize=(8,5))
+                ax.plot(history.history.get('loss', []), label='Training loss', color='blue')
+                if 'val_loss' in history.history:
+                    ax.plot(history.history['val_loss'], label='Validation loss', color='blue', linestyle='--')
+                ax.set_xlabel('Epoch')
+                ax.set_ylabel('Loss')
+                ax.legend(loc='best')
+                fig.tight_layout()
+                for d in images_dirs:
+                    try:
+                        plt.savefig(os.path.join(d, 'lstm_training_curve.png'))
+                    except Exception:
+                        pass
+                plt.close(fig)
+                # MAE curves if available
+                if 'mae' in history.history or 'val_mae' in history.history:
+                    fig2, ax2 = plt.subplots(figsize=(8,5))
+                    if 'mae' in history.history:
+                        ax2.plot(history.history['mae'], label='Training MAE', color='green')
+                    if 'val_mae' in history.history:
+                        ax2.plot(history.history['val_mae'], label='Validation MAE', color='green', linestyle='--')
+                    ax2.set_xlabel('Epoch')
+                    ax2.set_ylabel('MAE')
+                    ax2.legend(loc='best')
+                    fig2.tight_layout()
+                    for d in images_dirs:
+                        try:
+                            plt.savefig(os.path.join(d, 'lstm_mae_curve.png'))
+                        except Exception:
+                            pass
+                    plt.close(fig2)
+                if images_dirs:
+                    logger.info(f"✅ Saved LSTM training images to: {images_dirs}")
+                else:
+                    logger.warning("No writable images directory found for LSTM curves")
+            except Exception as img_err:
+                logger.warning(f"Could not save LSTM training images: {img_err}")
+            
             return results
             
         except Exception as e:
@@ -738,7 +802,9 @@ class LSTMTrainingService:
                 return None, None
             
             # Make predictions
-            y_pred = model.predict(X_seq, verbose=0).flatten()
+            y_pred = model.predict(X_seq, verbose=0)
+            if y_pred.ndim > 1:
+                y_pred = y_pred.reshape(-1)
             
             logger.info(f"LSTM predictions: {len(y_pred)} samples")
             logger.info(f"True range: {y_true.min():.2f} - {y_true.max():.2f}")

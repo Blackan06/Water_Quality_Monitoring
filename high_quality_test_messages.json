@@ -1,0 +1,29 @@
+[
+  {
+    "station_id": 0,
+    "measurement_time": "2024-01-15T00:00:00Z",
+    "ph": 7.2,
+    "temperature": 22.5,
+    "do": 9.5,
+    "wqi": 85.3,
+    "description": "High quality water - excellent conditions"
+  },
+  {
+    "station_id": 1,
+    "measurement_time": "2024-01-15T00:00:00Z",
+    "ph": 7.0,
+    "temperature": 23.0,
+    "do": 10.2,
+    "wqi": 92.1,
+    "description": "Excellent water quality - optimal conditions"
+  },
+  {
+    "station_id": 2,
+    "measurement_time": "2024-01-15T00:00:00Z",
+    "ph": 6.8,
+    "temperature": 24.5,
+    "do": 8.8,
+    "wqi": 88.7,
+    "description": "Very good water quality"
+  }
+]

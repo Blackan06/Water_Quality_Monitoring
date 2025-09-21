@@ -1117,36 +1117,65 @@ class DatabaseManager:
             return 0
 
     def get_station_historical_data(self, station_id, limit=48):
-        """Lấy historical data cho một station để dùng cho prediction"""
+        """Lấy historical data cho một station để dùng cho prediction.
+        Trả về list[tuple]: (ph, temperature, do, wqi, measurement_time)
+        Ưu tiên lấy từ historical_wqi_data, sau đó fallback sang raw_sensor_data.
+        Không sử dụng processed_water_quality_data nữa.
+        """
         try:
             conn = self.get_connection()
             if not conn:
                 return None
-            
+
             cur = conn.cursor()
-            
-            cur.execute("""
-                SELECT ph, temperature, "do", measurement_time
-                FROM raw_sensor_data 
-                WHERE station_id = %s AND is_processed = FALSE
+
+            # 1) Historical table (đủ wqi, map measurement_date -> measurement_time)
+            cur.execute(
+                """
+                SELECT ph, temperature, "do", wqi, measurement_date::timestamp AS measurement_time
+                FROM historical_wqi_data
+                WHERE station_id = %s
+                ORDER BY measurement_date DESC
+                LIMIT %s
+                """,
+                (station_id, limit),
+            )
+            historical = cur.fetchall()
+            if historical:
+                cur.close()
+                conn.close()
+                logger.info(f"Retrieved {len(historical)} historical records for station {station_id}")
+                return historical
+            else:
+                logger.warning(f"No historical data found for station {station_id} in historical_wqi_data table")
+
+            # 2) Fallback: recent raw data (không có wqi, chỉ phù hợp simple predictions)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT ph, temperature, "do", NULL::DECIMAL(6,2) AS wqi, measurement_time
+                FROM raw_sensor_data
+                WHERE station_id = %s
                 ORDER BY measurement_time DESC
                 LIMIT %s
-            """, (station_id, limit))
-            
-            data = cur.fetchall()
-            
+                """,
+                (station_id, limit),
+            )
+            raw = cur.fetchall()
             cur.close()
             conn.close()
-            
-            if data:
-                logger.info(f"Retrieved {len(data)} unprocessed records for station {station_id}")
-                return data
+            if raw:
+                logger.info(f"Retrieved {len(raw)} raw records for station {station_id} (fallback)")
+                return raw
             else:
-                logger.warning(f"No unprocessed data found for station {station_id}")
-                return None
-            
+                logger.warning(f"No raw data found for station {station_id} in raw_sensor_data table")
+                return []
+
+            logger.warning(f"No data found for station {station_id} in historical/raw tables")
+            return None
+
         except Exception as e:
-            logger.error(f"Error getting unprocessed data for station {station_id}: {e}")
+            logger.error(f"Error getting historical data for station {station_id}: {e}")
             return None
 
     def get_stations_with_new_data(self):

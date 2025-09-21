@@ -1,6 +1,7 @@
 from airflow.operators.python import PythonOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.sensors.python import PythonSensor
 from docker.types import Mount
 from datetime import datetime, timedelta
 import datetime as dt
@@ -48,7 +49,10 @@ def process_training_results(**context):
         # Try multiple locations for LSTM metrics
         lstm_metrics_candidates = [
             './models/lstm_metrics.json',
-            os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models'), 'lstm_metrics.json')
+            os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models'), 'lstm_metrics.json'),
+            os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models'), 'lstm_metrics.json'),
+            '/opt/airflow/models/lstm_metrics.json',  # Direct path fallback
+            '/usr/local/airflow/models/lstm_metrics.json'  # Direct path fallback
         ]
         metadata_file = './models/enhanced_metadata.json'
 
@@ -60,16 +64,25 @@ def process_training_results(**context):
             logger.info("📊 Found ensemble metrics")
 
         # Load LSTM metrics if present in any candidate path
+        lstm_metrics_found = False
         for cand in lstm_metrics_candidates:
+            logger.info(f"🔍 Checking LSTM metrics at: {cand}")
             if os.path.exists(cand):
                 try:
                     with open(cand, 'r') as f:
                         lstm_metrics = json.load(f)
                     metrics.update(lstm_metrics)
                     logger.info(f"📊 Found LSTM metrics at: {cand}")
+                    logger.info(f"📊 LSTM metrics content: {lstm_metrics}")
+                    lstm_metrics_found = True
                     break
                 except Exception as e:
                     logger.warning(f"Could not read LSTM metrics at {cand}: {e}")
+            else:
+                logger.info(f"❌ LSTM metrics not found at: {cand}")
+        
+        if not lstm_metrics_found:
+            logger.warning("⚠️ No LSTM metrics found in any candidate path")
 
         if not metrics and os.path.exists(metadata_file):
             # Fallback to enhanced metadata
@@ -87,7 +100,10 @@ def process_training_results(**context):
             en_pred_path = os.path.join('./models', 'ensemble_test_predictions.csv')
             lstm_pred_candidates = [
                 os.path.join('./models', 'lstm_test_predictions_h1.csv'),
-                os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models'), 'lstm_test_predictions_h1.csv')
+                os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models'), 'lstm_test_predictions_h1.csv'),
+                os.path.join(os.getenv('AIRFLOW_MODELS_DIR', '/usr/local/airflow/models'), 'lstm_test_predictions_h1.csv'),
+                '/opt/airflow/models/lstm_test_predictions_h1.csv',  # Direct path fallback
+                '/usr/local/airflow/models/lstm_test_predictions_h1.csv'  # Direct path fallback
             ]
             lstm_pred_path = next((p for p in lstm_pred_candidates if os.path.exists(p)), None)
             if os.path.exists(en_pred_path) and lstm_pred_path:
@@ -104,6 +120,14 @@ def process_training_results(**context):
                     how='inner'
                 )
                 if not merged.empty:
+                    # Check if required columns exist
+                    required_cols = ['y_true', 'y_ensemble_xrf', 'y_lstm']
+                    missing_cols = [col for col in required_cols if col not in merged.columns]
+                    if missing_cols:
+                        logger.warning(f"Missing columns in merged data: {missing_cols}")
+                        logger.info(f"Available columns: {list(merged.columns)}")
+                        raise KeyError(f"Missing required columns: {missing_cols}")
+                    
                     y_true = merged['y_true'].astype(float).values
                     y_en = merged['y_ensemble_xrf'].astype(float).values
                     y_lstm = merged['y_lstm'].astype(float).values
@@ -169,6 +193,7 @@ def process_training_results(**context):
                     logger.info("LSTM per-sample predictions not found; skipping blended metrics")
         except Exception as e:
             logger.warning(f"Could not compute ENSEMBLE+LSTM blended metrics: {e}")
+            logger.info("Continuing without blended metrics...")
 
         # Extract metrics (include lstm)
         xgb_r2 = metrics.get('xgb', {}).get('r2', 0.0)
@@ -603,10 +628,98 @@ def load_historical_data_and_train_ensemble() :
             'station_ids': station_ids_conf
         }
     )
+    
+    # Wait for LSTM training to complete - using Python sensor
+    def check_lstm_model_exists():
+        """Check if LSTM model file exists."""
+        import os
+        import logging
+        
+        # Use same path as LSTM DAG
+        airflow_models_dir = os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models')
+        model_path = os.path.join(airflow_models_dir, 'lstm_global_model.h5')
+        
+        # Also check project_root path as fallback
+        project_models_path = f"{project_root}/models/lstm_global_model.h5"
+        
+        logger = logging.getLogger(__name__)
+        
+        if os.path.exists(model_path):
+            logger.info(f"✅ LSTM model found at: {model_path}")
+            return True
+        elif os.path.exists(project_models_path):
+            logger.info(f"✅ LSTM model found at: {project_models_path}")
+            return True
+        else:
+            logger.info(f"⏳ Waiting for LSTM model at: {model_path} or {project_models_path}")
+            return False
+    
+    wait_for_lstm_completion = PythonSensor(
+        task_id='wait_for_lstm_completion',
+        python_callable=check_lstm_model_exists,
+        timeout=7200,  # 2 hours timeout
+        poke_interval=30,  # Check every 30 seconds
+        mode='reschedule'
+    )
+    
+    # Task to verify LSTM model and log info
+    def verify_lstm_model(**context):
+        """Verify LSTM model exists and log information."""
+        import os
+        import logging
+        
+        # Check both possible paths
+        airflow_models_dir = os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models')
+        model_path = os.path.join(airflow_models_dir, 'lstm_global_model.h5')
+        project_models_path = f"{project_root}/models/lstm_global_model.h5"
+        
+        metrics_path = os.path.join(airflow_models_dir, 'lstm_metrics.json')
+        project_metrics_path = f"{project_root}/models/lstm_metrics.json"
+        
+        logger = logging.getLogger(__name__)
+        
+        # Find the actual model file
+        actual_model_path = None
+        if os.path.exists(model_path):
+            actual_model_path = model_path
+        elif os.path.exists(project_models_path):
+            actual_model_path = project_models_path
+        
+        if actual_model_path:
+            logger.info(f"✅ LSTM model found at: {actual_model_path}")
+            logger.info(f"Model size: {os.path.getsize(actual_model_path)} bytes")
+            
+            # Check for metrics file
+            actual_metrics_path = None
+            if os.path.exists(metrics_path):
+                actual_metrics_path = metrics_path
+            elif os.path.exists(project_metrics_path):
+                actual_metrics_path = project_metrics_path
+            
+            if actual_metrics_path:
+                try:
+                    import json
+                    with open(actual_metrics_path, 'r') as f:
+                        metrics = json.load(f)
+                    logger.info(f"📊 LSTM metrics: {metrics}")
+                except Exception as e:
+                    logger.warning(f"Could not read LSTM metrics: {e}")
+            else:
+                logger.warning("LSTM metrics file not found")
+        else:
+            logger.error(f"❌ LSTM model not found at: {model_path} or {project_models_path}")
+            raise FileNotFoundError(f"LSTM model not found in either location")
+        
+        return True
+    
+    verify_lstm_task = PythonOperator(
+        task_id='verify_lstm_model',
+        python_callable=verify_lstm_model,
+    )
 
     # Định nghĩa dependencies
-    # Trigger LSTM training asynchronously; process results immediately after ensemble training
-    ensure_db_task >> train_model_task >> [trigger_lstm_training, process_results_task]
-    process_results_task >> save_mlflow_task >> show_best_model_task 
+    # Đảm bảo LSTM training hoàn thành trước khi process results
+    ensure_db_task >> train_model_task >> trigger_lstm_training
+    trigger_lstm_training >> wait_for_lstm_completion >> verify_lstm_task >> process_results_task >> save_mlflow_task >> show_best_model_task 
 
 load_historical_data_and_train_ensemble()

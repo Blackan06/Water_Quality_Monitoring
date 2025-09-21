@@ -1,0 +1,68 @@
+{
+  "template": {
+    "station_id": 0,
+    "measurement_time": "YYYY-MM-DDTHH:MM:SSZ",
+    "ph": 7.2,
+    "temperature": 25.5,
+    "do": 8.1,
+    "wqi": 85.3
+  },
+  "date_examples": {
+    "immediate": "2023-12-16T00:00:00Z",
+    "1_month": "2024-01-15T00:00:00Z",
+    "2_months": "2024-02-15T00:00:00Z",
+    "3_months": "2024-03-15T00:00:00Z",
+    "6_months": "2024-06-15T00:00:00Z",
+    "9_months": "2024-09-15T00:00:00Z",
+    "12_months": "2024-12-15T00:00:00Z",
+    "18_months": "2025-06-15T00:00:00Z",
+    "24_months": "2025-12-15T00:00:00Z"
+  },
+  "station_examples": {
+    "station_0": "Sông Hồng - Hà Nội",
+    "station_1": "Sông Đồng Nai - TP.HCM", 
+    "station_2": "Sông Cửu Long - Cần Thơ",
+    "station_3": "Sông Lam - Nghệ An"
+  },
+  "wqi_ranges": {
+    "excellent": "90-100",
+    "good": "80-89",
+    "fair": "70-79",
+    "poor": "60-69",
+    "very_poor": "40-59",
+    "critical": "0-39"
+  },
+  "usage_guide": {
+    "step_1": "Copy template",
+    "step_2": "Chọn station_id (0-3)",
+    "step_3": "Chọn measurement_time từ date_examples hoặc tự tạo",
+    "step_4": "Điều chỉnh ph, temperature, do, wqi theo ý muốn",
+    "step_5": "Save và gửi qua Kafka"
+  },
+  "quick_examples": [
+    {
+      "station_id": 0,
+      "measurement_time": "2024-01-15T00:00:00Z",
+      "ph": 7.2,
+      "temperature": 25.5,
+      "do": 8.1,
+      "wqi": 85.3
+    },
+    {
+      "station_id": 1,
+      "measurement_time": "2024-03-15T00:00:00Z",
+      "ph": 6.8,
+      "temperature": 28.2,
+      "do": 7.5,
+      "wqi": 78.9
+    },
+    {
+      "station_id": 2,
+      "measurement_time": "2024-06-15T00:00:00Z",
+      "ph": 7.5,
+      "temperature": 26.8,
+      "do": 8.3,
+      "wqi": 92.1
+    }
+  ]
+}

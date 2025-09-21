@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 from datetime import datetime
 from .database_manager import db_manager
-from .station_processor_v2 import station_processor
+from .station_processor  import station_processor
 from .model_manager import model_manager
 
 # Cấu hình logging

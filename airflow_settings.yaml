@@ -16,7 +16,7 @@ airflow:
       conn_port: 9092
       conn_extra:
         bootstrap.servers: kafka:9092
-        group.id: water_quality_sensor
+        group.id: water_quality_group
   pools:
     - pool_name:
       pool_slot:

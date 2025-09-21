@@ -1,0 +1,106 @@
+[
+  {
+    "option": "immediate_after_historical",
+    "description": "Ngay sau dữ liệu lịch sử",
+    "timestamp": "2023-12-16T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2023-12-16T00:00:00Z",
+      "ph": 7.2,
+      "temperature": 25.5,
+      "do": 8.1,
+      "wqi": 85.3
+    }
+  },
+  {
+    "option": "1_month_later",
+    "description": "1 tháng sau dữ liệu lịch sử",
+    "timestamp": "2024-01-15T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2024-01-15T00:00:00Z",
+      "ph": 7.1,
+      "temperature": 24.8,
+      "do": 8.2,
+      "wqi": 84.5
+    }
+  },
+  {
+    "option": "3_months_later",
+    "description": "3 tháng sau dữ liệu lịch sử",
+    "timestamp": "2024-03-15T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2024-03-15T00:00:00Z",
+      "ph": 7.0,
+      "temperature": 25.9,
+      "do": 8.0,
+      "wqi": 85.3
+    }
+  },
+  {
+    "option": "6_months_later",
+    "description": "6 tháng sau dữ liệu lịch sử",
+    "timestamp": "2024-06-15T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2024-06-15T00:00:00Z",
+      "ph": 6.9,
+      "temperature": 28.5,
+      "do": 7.8,
+      "wqi": 82.1
+    }
+  },
+  {
+    "option": "12_months_later",
+    "description": "12 tháng sau dữ liệu lịch sử",
+    "timestamp": "2024-12-15T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2024-12-15T00:00:00Z",
+      "ph": 7.3,
+      "temperature": 24.2,
+      "do": 8.4,
+      "wqi": 88.7
+    }
+  },
+  {
+    "option": "custom_date_1",
+    "description": "Ngày tùy chọn 1 - 2 tháng sau",
+    "timestamp": "2024-02-15T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2024-02-15T00:00:00Z",
+      "ph": 7.4,
+      "temperature": 26.1,
+      "do": 8.0,
+      "wqi": 86.2
+    }
+  },
+  {
+    "option": "custom_date_2",
+    "description": "Ngày tùy chọn 2 - 9 tháng sau",
+    "timestamp": "2024-09-15T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2024-09-15T00:00:00Z",
+      "ph": 7.1,
+      "temperature": 27.3,
+      "do": 7.9,
+      "wqi": 83.8
+    }
+  },
+  {
+    "option": "custom_date_3",
+    "description": "Ngày tùy chọn 3 - 18 tháng sau",
+    "timestamp": "2025-06-15T00:00:00Z",
+    "message": {
+      "station_id": 0,
+      "measurement_time": "2025-06-15T00:00:00Z",
+      "ph": 7.0,
+      "temperature": 29.1,
+      "do": 7.6,
+      "wqi": 81.5
+    }
+  }
+]

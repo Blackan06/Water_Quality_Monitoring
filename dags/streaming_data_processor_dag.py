@@ -1,6 +1,3 @@
-import sys
-sys.path.append('/opt/airflow/include')
-
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import logging
@@ -10,7 +7,9 @@ from openai import OpenAI
 from airflow.models import Variable
 from airflow.decorators import dag, task
 from pendulum import datetime
-
+from include.iot_streaming.database_manager import db_manager
+from include.iot_streaming.pipeline_processor import PipelineProcessor
+from include.iot_streaming.prediction_service import PredictionService
 
 try:
     openai_key = os.getenv("OPENAI_API_KEY") or Variable.get("openai_api_key", default_var=None)
@@ -41,9 +40,7 @@ def initialize_database_connection(**context):
     logger.info("Initializing database connection...")
     
     try:
-        import sys
-        sys.path.append('/opt/airflow/include')
-        from iot_streaming.database_manager import db_manager
+       
         status = db_manager.check_database_status()
         
         logger.info("✅ Database connection initialized successfully")
@@ -58,10 +55,8 @@ def process_streaming_data(**context):
     logger.info("Starting streaming data processing orchestration")
     
     try:
-        import sys
-        sys.path.append('/opt/airflow/include')
-        from iot_streaming.database_manager import db_manager
-        from iot_streaming.pipeline_processor import PipelineProcessor
+      
+      
         
         # Lấy raw data từ database
         pipeline_processor = PipelineProcessor()
@@ -100,10 +95,7 @@ def predict_existing_stations(**context):
     logger.info("Starting prediction orchestration")
     
     try:
-        import sys
-        sys.path.append('/opt/airflow/include')
-        from iot_streaming.database_manager import db_manager
-        from iot_streaming.prediction_service import PredictionService
+     
 
         # Lấy stations có unprocessed data
         conn = db_manager.get_connection()
@@ -170,9 +162,7 @@ def update_database_metrics(**context):
     logger.info("Updating database metrics")
     
     try:
-        import sys
-        sys.path.append('/opt/airflow/include')
-        from iot_streaming.database_manager import db_manager
+     
         
         # Gọi service để cập nhật metrics
         metrics_result = db_manager.update_metrics()
@@ -188,7 +178,6 @@ def generate_alerts_and_notifications(**context):
     """Orchestrate alerts generation and push notifications"""
     logger.info("Generating alerts and sending push notifications")
     try:
-        from iot_streaming.prediction_service import PredictionService
         
         # Lấy kết quả predictions
         prediction_results = context['task_instance'].xcom_pull(
@@ -227,9 +216,7 @@ def generate_alerts_and_notifications(**context):
             confidence_score = first_prediction.get('confidence_score', 0.5)
             
             # Lấy dữ liệu hiện tại từ database để phân tích
-            import sys
-            sys.path.append('/opt/airflow/include')
-            from iot_streaming.database_manager import db_manager
+           
             conn = db_manager.get_connection()
             current_data = None
             
@@ -316,7 +303,6 @@ def summarize_pipeline_execution(**context):
     logger.info("Summarizing pipeline execution")
     
     try:
-        from iot_streaming.pipeline_processor import PipelineProcessor
         
         # Lấy dữ liệu từ các task trước
         prediction_results = context['task_instance'].xcom_pull(

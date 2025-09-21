@@ -1,0 +1,26 @@
+[
+  {
+    "station_id": 0,
+    "measurement_time": "2023-12-16T10:00:00Z",
+    "ph": 7.2,
+    "temperature": 25.5,
+    "do": 8.1,
+    "wqi": 85.3
+  },
+  {
+    "station_id": 1,
+    "measurement_time": "2023-12-16T10:05:00Z",
+    "ph": 6.8,
+    "temperature": 28.2,
+    "do": 7.5,
+    "wqi": 78.9
+  },
+  {
+    "station_id": 2,
+    "measurement_time": "2023-12-16T10:10:00Z",
+    "ph": 7.5,
+    "temperature": 26.8,
+    "do": 8.3,
+    "wqi": 92.1
+  }
+]

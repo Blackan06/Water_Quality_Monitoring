@@ -1,0 +1,85 @@
+{
+  "test_scenarios": {
+    "scenario_1_immediate": {
+      "description": "Dữ liệu ngay sau dữ liệu lịch sử (2023-12-16)",
+      "messages": [
+        {
+          "station_id": 0,
+          "measurement_time": "2023-12-16T00:00:00Z",
+          "ph": 7.2,
+          "temperature": 25.5,
+          "do": 8.1,
+          "wqi": 85.3
+        }
+      ]
+    },
+    "scenario_2_1_month_later": {
+      "description": "Dữ liệu 1 tháng sau (2024-01-15)",
+      "messages": [
+        {
+          "station_id": 0,
+          "measurement_time": "2024-01-15T00:00:00Z",
+          "ph": 7.1,
+          "temperature": 24.8,
+          "do": 8.2,
+          "wqi": 84.5
+        }
+      ]
+    },
+    "scenario_3_3_months_later": {
+      "description": "Dữ liệu 3 tháng sau (2024-03-15)",
+      "messages": [
+        {
+          "station_id": 0,
+          "measurement_time": "2024-03-15T00:00:00Z",
+          "ph": 7.0,
+          "temperature": 25.9,
+          "do": 8.0,
+          "wqi": 85.3
+        }
+      ]
+    },
+    "scenario_4_6_months_later": {
+      "description": "Dữ liệu 6 tháng sau (2024-06-15)",
+      "messages": [
+        {
+          "station_id": 0,
+          "measurement_time": "2024-06-15T00:00:00Z",
+          "ph": 6.9,
+          "temperature": 28.5,
+          "do": 7.8,
+          "wqi": 82.1
+        }
+      ]
+    },
+    "scenario_5_12_months_later": {
+      "description": "Dữ liệu 12 tháng sau (2024-12-15)",
+      "messages": [
+        {
+          "station_id": 0,
+          "measurement_time": "2024-12-15T00:00:00Z",
+          "ph": 7.3,
+          "temperature": 24.2,
+          "do": 8.4,
+          "wqi": 88.7
+        }
+      ]
+    }
+  },
+  "usage_instructions": {
+    "monthly_time_series": "Sử dụng ngày 15 của mỗi tháng để phù hợp với monthly time-series",
+    "prediction_horizons": {
+      "1_month": "Dự đoán tháng tiếp theo",
+      "3_months": "Dự đoán 3 tháng tiếp theo", 
+      "6_months": "Dự đoán 6 tháng tiếp theo",
+      "12_months": "Dự đoán 12 tháng tiếp theo"
+    },
+    "recommended_dates": [
+      "2023-12-16 (ngay sau dữ liệu lịch sử)",
+      "2024-01-15 (1 tháng sau)",
+      "2024-03-15 (3 tháng sau)",
+      "2024-06-15 (6 tháng sau)",
+      "2024-12-15 (12 tháng sau)"
+    ]
+  }
+}
