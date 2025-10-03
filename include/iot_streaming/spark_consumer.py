@@ -29,15 +29,54 @@ class SparkKafkaConsumer:
     def _initialize_spark(self):
         """Initialize Spark session"""
         try:
-            self.spark = SparkSession.builder \
-                .appName("WaterQualitySparkConsumer") \
-                .config("spark.sql.adaptive.enabled", "true") \
-                .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-                .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
-                .getOrCreate()
+            import os
+            
+            # Check if running in Docker (Airflow) or locally
+            is_docker = os.path.exists('/.dockerenv') or os.environ.get('AIRFLOW_HOME')
+            
+            if is_docker:
+                # Running in Docker/Airflow - connect to Spark cluster
+                self.spark = SparkSession.builder \
+                    .appName("WaterQualitySparkConsumer") \
+                    .master("spark://spark-master:7077") \
+                    .config("spark.sql.adaptive.enabled", "true") \
+                    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+                    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+                    .config("spark.driver.host", "airflow") \
+                    .config("spark.driver.port", "7078") \
+                    .config("spark.driver.bindAddress", "0.0.0.0") \
+                    .config("spark.executor.memory", "1g") \
+                    .config("spark.executor.cores", "2") \
+                    .config("spark.cores.max", "4") \
+                    .getOrCreate()
+                
+                logger.info("🐳 Running in Docker - connected to Spark cluster")
+                logger.info(f"📊 Spark UI: http://spark-master:8080")
+            else:
+                # Running locally - use local mode with correct Python version
+                python_executable = "/Users/kiethuynhanh/anaconda3/bin/python"
+                
+                self.spark = SparkSession.builder \
+                    .appName("WaterQualitySparkConsumer") \
+                    .master("local[4]") \
+                    .config("spark.sql.adaptive.enabled", "true") \
+                    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+                    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+                    .config("spark.driver.memory", "2g") \
+                    .config("spark.driver.maxResultSize", "1g") \
+                    .config("spark.driver.bindAddress", "127.0.0.1") \
+                    .config("spark.driver.host", "127.0.0.1") \
+                    .config("spark.pyspark.python", python_executable) \
+                    .config("spark.pyspark.driver.python", python_executable) \
+                    .getOrCreate()
+                
+                logger.info("💻 Running locally - using local Spark mode")
+                logger.info(f"📊 Spark UI: http://localhost:4040")
+                logger.info(f"🐍 Python executable: {python_executable}")
             
             self.spark.sparkContext.setLogLevel("WARN")
             logger.info("✅ Spark session initialized successfully")
+            logger.info(f"🔗 Spark Master: {self.spark.sparkContext.master}")
             
         except Exception as e:
             logger.error(f"❌ Failed to initialize Spark session: {e}")
@@ -140,39 +179,77 @@ class SparkKafkaConsumer:
             raise
     
     def _clean_data(self, df: 'DataFrame') -> 'DataFrame':
-        """Clean and validate data"""
+        """Clean and validate data - reject invalid data instead of replacing"""
         try:
-            # Handle null values
-            df_cleaned = df.fillna({
-                'ph': 7.0,
-                'temperature': 25.0,
-                'do': 8.0,
-                'station_id': 0
-            })
+            # Count original records
+            original_count = df.count()
+            logger.info(f"📊 Original data records: {original_count}")
             
-            # Validate ranges
-            df_cleaned = df_cleaned.withColumn(
-                'ph', 
-                when((col('ph') < 0) | (col('ph') > 14), 7.0).otherwise(col('ph'))
+            # Remove records with null values in critical fields
+            df_cleaned = df.filter(
+                col('ph').isNotNull() & 
+                col('temperature').isNotNull() & 
+                col('do').isNotNull() & 
+                col('station_id').isNotNull()
             )
             
-            df_cleaned = df_cleaned.withColumn(
-                'temperature',
-                when((col('temperature') < -10) | (col('temperature') > 50), 25.0)
-                .otherwise(col('temperature'))
+            # Remove records with invalid ranges
+            df_cleaned = df_cleaned.filter(
+                (col('ph') >= 0) & (col('ph') <= 14) &
+                (col('temperature') >= -10) & (col('temperature') <= 50) &
+                (col('do') >= 0) & (col('do') <= 20) &
+                (col('station_id') > 0)
             )
             
-            df_cleaned = df_cleaned.withColumn(
-                'do',
-                when((col('do') < 0) | (col('do') > 20), 8.0)
-                .otherwise(col('do'))
-            )
+            # Count cleaned records
+            cleaned_count = df_cleaned.count()
+            removed_count = original_count - cleaned_count
+            
+            if removed_count > 0:
+                logger.warning(f"⚠️ Removed {removed_count} invalid records (null values or out of range)")
+                logger.info(f"✅ Valid records remaining: {cleaned_count}")
+            else:
+                logger.info(f"✅ All {cleaned_count} records are valid")
+            
+            # If no valid records remain, raise exception
+            if cleaned_count == 0:
+                raise ValueError("❌ No valid data records found after cleaning")
+            
+            # Send alert if significant data loss
+            if removed_count > 0:
+                self._send_data_quality_alert(removed_count, original_count)
             
             return df_cleaned
             
         except Exception as e:
             logger.error(f"❌ Error cleaning data: {e}")
             raise
+    
+    def _send_data_quality_alert(self, removed_count: int, original_count: int):
+        """Send alert when data quality issues are detected"""
+        try:
+            loss_percentage = (removed_count / original_count) * 100
+            
+            alert_data = {
+                "alert_type": "DATA_QUALITY_ISSUE",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "message": f"Data quality issue detected: {removed_count}/{original_count} records ({loss_percentage:.1f}%) were invalid",
+                "details": {
+                    "removed_records": removed_count,
+                    "total_records": original_count,
+                    "loss_percentage": loss_percentage,
+                    "reason": "Null values or out-of-range measurements detected"
+                }
+            }
+            
+            # Log the alert
+            logger.warning(f"🚨 DATA QUALITY ALERT: {alert_data['message']}")
+            
+            # Here you can add notification logic (email, Slack, etc.)
+            # For now, just log the alert
+            
+        except Exception as e:
+            logger.error(f"❌ Error sending data quality alert: {e}")
     
     def _add_features(self, df: 'DataFrame') -> 'DataFrame':
         """Add engineered features"""
