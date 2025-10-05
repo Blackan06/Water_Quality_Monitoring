@@ -280,7 +280,6 @@ def ensure_database_exists():
 
 
 def seed_default_stations():
-    """Insert default stations 0, 1, 2 if they do not exist."""
     stations = [
         (0, 'Station 0', 'Default location 0', None, None, 'Seeded by DAG'),
         (1, 'Station 1', 'Default location 1', None, None, 'Seeded by DAG'),

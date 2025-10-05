@@ -1,5 +1,5 @@
 # Sử dụng image PySpark chính thức làm base image
-FROM bitnami/spark:3.2.0
+FROM bitnamicharts/spark:3.5.0
 
 USER root
 

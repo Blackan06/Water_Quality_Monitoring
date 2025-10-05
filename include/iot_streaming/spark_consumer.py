@@ -8,6 +8,8 @@ import json
 import pandas as pd
 import numpy as np
 import requests
+import os
+import sys
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from pyspark.sql import SparkSession
@@ -16,6 +18,13 @@ from pyspark.sql.types import StructType, StructField, StringType, DoubleType, T
 
 # Import database manager
 from .database_manager import db_manager
+
+# Try to import findspark for better Spark initialization
+try:
+    import findspark
+    findspark.init()
+except ImportError:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -34,53 +43,129 @@ class SparkKafkaConsumer:
             # Check if running in Docker (Airflow) or locally
             is_docker = os.path.exists('/.dockerenv') or os.environ.get('AIRFLOW_HOME')
             
-            if is_docker:
-                # Running in Docker/Airflow - connect to Spark cluster
+            # Force local mode for testing (comment out for production)
+            force_local = os.environ.get('SPARK_FORCE_LOCAL', 'true').lower() == 'true'  # Default to true
+            
+            logger.info(f"🔍 Environment check - is_docker: {is_docker}, force_local: {force_local}")
+            
+            # Check if Spark cluster is available (with error handling)
+            try:
+                spark_cluster_available = self._check_spark_cluster_availability()
+                logger.info(f"🔍 Cluster availability check: {spark_cluster_available}")
+            except Exception as e:
+                logger.warning(f"⚠️ Cluster availability check failed: {e}")
+                spark_cluster_available = False
+            
+            # Always use local mode for now to avoid networking issues
+            if False:  # Disabled cluster mode completely
+                # Running in Docker/Airflow - use Spark cluster with enhanced networking config
                 self.spark = SparkSession.builder \
                     .appName("WaterQualitySparkConsumer") \
                     .master("spark://spark-master:7077") \
                     .config("spark.sql.adaptive.enabled", "true") \
                     .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
                     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
-                    .config("spark.driver.host", "airflow") \
-                    .config("spark.driver.port", "7078") \
+                    .config("spark.driver.memory", "1g") \
+                    .config("spark.driver.maxResultSize", "512m") \
                     .config("spark.driver.bindAddress", "0.0.0.0") \
-                    .config("spark.executor.memory", "1g") \
-                    .config("spark.executor.cores", "2") \
-                    .config("spark.cores.max", "4") \
+                    .config("spark.driver.host", "api-server") \
+                    .config("spark.executor.memory", "512m") \
+                    .config("spark.executor.cores", "1") \
+                    .config("spark.cores.max", "2") \
+                    .config("spark.driver.extraJavaOptions", "-Djava.net.preferIPv4Stack=true -XX:+UseG1GC -XX:+UseStringDeduplication") \
+                    .config("spark.executor.extraJavaOptions", "-XX:+UseG1GC -XX:+UseStringDeduplication") \
+                    .config("spark.network.timeout", "300s") \
+                    .config("spark.rpc.askTimeout", "120s") \
+                    .config("spark.rpc.lookupTimeout", "120s") \
+                    .config("spark.network.io.retryWait", "30s") \
+                    .config("spark.network.io.maxRetries", "3") \
+                    .config("spark.network.io.preferDirectBufs", "false") \
+                    .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "64MB") \
+                    .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
                     .getOrCreate()
                 
-                logger.info("🐳 Running in Docker - connected to Spark cluster")
-                logger.info(f"📊 Spark UI: http://spark-master:8080")
+
             else:
-                # Running locally - use local mode with correct Python version
-                python_executable = "/Users/kiethuynhanh/anaconda3/bin/python"
+                # Running locally - use local mode with enhanced configuration
+                logger.info("🔄 Initializing Spark in LOCAL mode...")
+                python_executable = sys.executable
                 
-                self.spark = SparkSession.builder \
-                    .appName("WaterQualitySparkConsumer") \
-                    .master("local[4]") \
-                    .config("spark.sql.adaptive.enabled", "true") \
-                    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-                    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
-                    .config("spark.driver.memory", "2g") \
-                    .config("spark.driver.maxResultSize", "1g") \
-                    .config("spark.driver.bindAddress", "127.0.0.1") \
-                    .config("spark.driver.host", "127.0.0.1") \
-                    .config("spark.pyspark.python", python_executable) \
-                    .config("spark.pyspark.driver.python", python_executable) \
-                    .getOrCreate()
+                # Set Java options for local mode to avoid networking issues
+                os.environ['PYSPARK_SUBMIT_ARGS'] = '--driver-memory 2g --executor-memory 2g pyspark-shell'
+                os.environ['PYSPARK_DRIVER_PYTHON'] = python_executable
+                os.environ['PYSPARK_PYTHON'] = python_executable
                 
-                logger.info("💻 Running locally - using local Spark mode")
-                logger.info(f"📊 Spark UI: http://localhost:4040")
-                logger.info(f"🐍 Python executable: {python_executable}")
+                try:
+                    self.spark = SparkSession.builder \
+                        .appName("WaterQualitySparkConsumer-Local") \
+                        .master("local[2]") \
+                        .config("spark.sql.adaptive.enabled", "true") \
+                        .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+                        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+                        .config("spark.driver.memory", "2g") \
+                        .config("spark.driver.maxResultSize", "1g") \
+                        .config("spark.executor.memory", "1g") \
+                        .config("spark.driver.bindAddress", "127.0.0.1") \
+                        .config("spark.driver.host", "127.0.0.1") \
+                        .config("spark.pyspark.python", python_executable) \
+                        .config("spark.pyspark.driver.python", python_executable) \
+                        .config("spark.driver.extraJavaOptions", "-Djava.net.preferIPv4Stack=true -XX:+UseG1GC") \
+                        .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
+                        .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "64MB") \
+                        .config("spark.sql.adaptive.coalescePartitions.minPartitionSize", "1MB") \
+                        .getOrCreate()
+                    
+                    logger.info("✅ Spark local mode initialized successfully")
+                    
+                except Exception as local_error:
+                    logger.error(f"❌ Local mode initialization failed: {local_error}")
+                    # Try minimal local mode as fallback
+                    logger.info("🔄 Trying minimal local mode...")
+                    self.spark = SparkSession.builder \
+                        .appName("WaterQualitySparkConsumer-Minimal") \
+                        .master("local[1]") \
+                        .config("spark.driver.memory", "1g") \
+                        .getOrCreate()
+                
             
-            self.spark.sparkContext.setLogLevel("WARN")
+            self.spark.sparkContext.setLogLevel("ERROR")  # Reduce log noise
             logger.info("✅ Spark session initialized successfully")
             logger.info(f"🔗 Spark Master: {self.spark.sparkContext.master}")
             
         except Exception as e:
             logger.error(f"❌ Failed to initialize Spark session: {e}")
             self.spark = None
+    
+    def _check_spark_cluster_availability(self) -> bool:
+        """Check if Spark cluster is available"""
+        try:
+            import socket
+            import requests
+            
+            # Check if spark-master hostname resolves
+            try:
+                socket.gethostbyname('spark-master')
+                logger.info("✅ spark-master hostname resolved")
+            except socket.gaierror:
+                logger.warning("⚠️ spark-master hostname resolution failed")
+                return False
+            
+            # Check if Spark Master UI is accessible
+            try:
+                response = requests.get("http://spark-master:8080", timeout=5)
+                if response.status_code == 200:
+                    logger.info("✅ Spark Master UI is accessible")
+                    return True
+                else:
+                    logger.warning(f"⚠️ Spark Master UI returned status: {response.status_code}")
+                    return False
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"⚠️ Spark Master UI not accessible: {e}")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Error checking Spark cluster availability: {e}")
+            return False
     
     def process_kafka_message(self, message: str) -> Dict[str, Any]:
         """
@@ -193,12 +278,12 @@ class SparkKafkaConsumer:
                 col('station_id').isNotNull()
             )
             
-            # Remove records with invalid ranges
+            # Remove records with invalid ranges (more lenient)
             df_cleaned = df_cleaned.filter(
                 (col('ph') >= 0) & (col('ph') <= 14) &
                 (col('temperature') >= -10) & (col('temperature') <= 50) &
                 (col('do') >= 0) & (col('do') <= 20) &
-                (col('station_id') > 0)
+                (col('station_id') >= 0)  # Allow station_id = 0
             )
             
             # Count cleaned records
@@ -297,10 +382,12 @@ class SparkKafkaConsumer:
                 .otherwise(0)
             )
             
+            from pyspark.sql.functions import abs as spark_abs
+            
             df_wqi = df_wqi.withColumn(
                 'temp_score',
                 when((col('temperature') >= 15) & (col('temperature') <= 30),
-                     100 - abs(col('temperature') - 22) * 2)
+                     100 - spark_abs(col('temperature') - 22) * 2)
                 .otherwise(0)
             )
             
@@ -462,16 +549,15 @@ class SparkKafkaConsumer:
                     wqi_value = float(record.get("wqi", 50.0))
                     alert_level = record.get("alert_level", "normal")
                     
-                    # Only send notifications for critical/warning/excellent levels
-                    if alert_level in ["critical", "warning", "excellent"]:
-                        notification_sent = self._send_single_notification(
-                            station_id, wqi_value, alert_level
-                        )
-                        if notification_sent:
-                            success_count += 1
-                            logger.debug(f"✅ Sent notification for station {station_id}")
-                        else:
-                            logger.warning(f"⚠️ Failed to send notification for station {station_id}")
+                    # Send notifications for all levels (with different priorities)
+                    notification_sent = self._send_single_notification(
+                        station_id, wqi_value, alert_level
+                    )
+                    if notification_sent:
+                        success_count += 1
+                        logger.debug(f"✅ Sent notification for station {station_id} (WQI: {wqi_value}, Level: {alert_level})")
+                    else:
+                        logger.warning(f"⚠️ Failed to send notification for station {station_id}")
                     
                 except Exception as e:
                     logger.error(f"❌ Error sending notification: {e}")
@@ -484,6 +570,42 @@ class SparkKafkaConsumer:
             logger.error(f"❌ Notification error: {e}")
             return False
     
+    def _get_notification_content(self, station_id: int, wqi_value: float, alert_level: str) -> tuple:
+        """
+        Get notification content (for testing)
+        
+        Args:
+            station_id: Station ID
+            wqi_value: WQI value
+            alert_level: Alert level
+            
+        Returns:
+            tuple: (title, message, status)
+        """
+        # Determine notification content based on alert level
+        if alert_level == "critical":
+            title = f"🚨 Critical Water Quality Alert - Station {station_id}"
+            message = f"Current WQI is {wqi_value:.1f}. Immediate action required!"
+            status = "critical"
+        elif alert_level == "warning":
+            title = f"⚠️ Water Quality Warning - Station {station_id}"
+            message = f"Current WQI is {wqi_value:.1f}. Monitor closely."
+            status = "warning"
+        elif alert_level == "excellent":
+            title = f"✅ Excellent Water Quality - Station {station_id}"
+            message = f"Current WQI is {wqi_value:.1f}. Great water quality!"
+            status = "excellent"
+        elif alert_level == "normal":
+            title = f"📊 Water Quality Update - Station {station_id}"
+            message = f"Current WQI is {wqi_value:.1f}. Water quality is normal."
+            status = "info"
+        else:
+            title = f"📊 Water Quality Report - Station {station_id}"
+            message = f"Current WQI is {wqi_value:.1f}. Quality level: {alert_level}"
+            status = "info"
+        
+        return title, message, status
+
     def _send_single_notification(self, station_id: int, wqi_value: float, alert_level: str) -> bool:
         """
         Send single notification
@@ -497,25 +619,12 @@ class SparkKafkaConsumer:
             bool: Success status
         """
         try:
-            # Determine notification content based on alert level
-            if alert_level == "critical":
-                title = f"🚨 Critical Water Quality Alert - Station {station_id}"
-                message = f"Current WQI is {wqi_value:.1f}. Immediate action required!"
-                status = "critical"
-            elif alert_level == "warning":
-                title = f"⚠️ Water Quality Warning - Station {station_id}"
-                message = f"Current WQI is {wqi_value:.1f}. Monitor closely."
-                status = "warning"
-            elif alert_level == "excellent":
-                title = f"✅ Excellent Water Quality - Station {station_id}"
-                message = f"Current WQI is {wqi_value:.1f}. Great water quality!"
-                status = "excellent"
-            else:
-                return True  # No notification needed for normal level
+            # Get notification content
+            title, message, status = self._get_notification_content(station_id, wqi_value, alert_level)
             
             # Send notification via API
             return self._push_notification(
-                account_id=station_id,
+                account_id=3,
                 title=title,
                 message=message,
                 status=status

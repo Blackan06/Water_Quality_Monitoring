@@ -1,5 +1,5 @@
 # Dockerfile (không đổi gì thêm)
-FROM bitnami/spark:3.5.5-debian-12-r3
+FROM bitnamicharts/spark:3.5.0
 USER root
 
 RUN apt-get update && apt-get install -y \

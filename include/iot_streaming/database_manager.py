@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self):
+        # Always use local Docker database for this project
         self.db_config = {
-            'host': os.getenv('DB_HOST', '194.238.16.14'),
+            'host': os.getenv('DB_HOST', 'postgres'),
             'port': os.getenv('DB_PORT', '5432'),
             'database': os.getenv('DB_NAME', 'wqi_db'),
             'user': os.getenv('DB_USER', 'postgres'),
@@ -96,6 +97,22 @@ class DatabaseManager:
                 logger.info("Added is_processed column to raw_sensor_data table")
             except Exception as e:
                 logger.debug(f"is_processed column may already exist: {e}")
+            
+            # Thêm dữ liệu mẫu cho monitoring_stations nếu chưa có
+            try:
+                cur.execute("""
+                    INSERT INTO monitoring_stations (station_id, station_name, location, is_active) 
+                    VALUES 
+                        (0, 'Default Station', 'Default Location', true),
+                        (1, 'Station 1', 'Location 1', true),
+                        (2, 'Station 2', 'Location 2', true),
+                        (3, 'Station 3', 'Location 3', true),
+                        (4, 'Station 4', 'Location 4', true)
+                    ON CONFLICT (station_id) DO NOTHING
+                """)
+                logger.info("Added default monitoring stations")
+            except Exception as e:
+                logger.debug(f"Default stations may already exist: {e}")
             
             # Bảng lưu dữ liệu đã xử lý và WQI
             cur.execute("""

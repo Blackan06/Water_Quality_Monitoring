@@ -8,8 +8,8 @@ services:
     user: root
     group_add:
       - "root"
-    cpus: "0.50"
-    mem_limit: "1g"
+    cpus: "1.0"
+    mem_limit: "2g"
     environment:
       - AIRFLOW__WEBSERVER__WORKERS=1
       - AIRFLOW__WEBSERVER__WORKER_CLASS=gthread
@@ -25,6 +25,8 @@ services:
       - RABBITMQ_PASS=admin1234
       - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_sensor"
       - KAFKA_GROUP_ID=water_quality_group
+      - SPARK_FORCE_LOCAL=true
+      - JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseG1GC -Djava.net.preferIPv4Stack=true"
 
 
 
@@ -50,6 +52,7 @@ services:
       - RABBITMQ_PASS=admin1234
       - AIRFLOW_CONN_KAFKA_DEFAULT="kafka://?bootstrap.servers=kafka:9092&group.id=water_quality_sensor"
       - KAFKA_GROUP_ID=water_quality_group
+      - SPARK_FORCE_LOCAL=true
       - AIRFLOW__SCHEDULER__PARSING_PROCESSES=1
       - AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL=30
       - AIRFLOW__CORE__PARALLELISM=4
@@ -132,44 +135,54 @@ services:
       - bigdata-network
   # Spark Master and Worker Nodes
   spark-master:
-    image: bitnami/spark:latest
+    image: apache/spark:3.5.3
     container_name: spark-master
-    cpus: "0.50"
-    mem_limit: "1g"
-    environment:
-      - SPARK_MODE=master
-      - SPARK_MASTER_HOST=spark-master
-      - MLFLOW_TRACKING_URI=http://mlflow:5003
-    ports:
-      - "8080:8080"  # Spark UI
-      - "7077:7077"  # Spark master port
-    volumes:
-      - ./models:/app/models
-    networks:
-      - bigdata-network
-
-  spark-worker:
-    image: bitnami/spark:latest
-    container_name: spark-worker
+    hostname: spark-master
     cpus: "1.0"
-    mem_limit: "1536m"
+    mem_limit: "2g"
     environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER=spark://spark-master:7077
-      - SPARK_WORKER_CORES=1
-      - SPARK_WORKER_MEMORY=1G
+      - MLFLOW_TRACKING_URI=http://mlflow:5003
+      - SPARK_MASTER_OPTS=-Dspark.deploy.defaultCores=2 -Dspark.network.timeout=300s -Dspark.rpc.askTimeout=120s
+      - JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseG1GC -XX:+UseStringDeduplication -Djava.net.preferIPv4Stack=true"
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      --host spark-master --port 7077 --webui-port 8080
     ports:
-      - "8081:8081"
+      - "8080:8080"   # Spark Master UI
+      - "7077:7077"   # Spark Master RPC
     volumes:
       - ./models:/app/models
     networks:
       - bigdata-network
 
-  # MLflow tracking server
+# --- Spark Worker ---
+  spark-worker:
+    image: apache/spark:3.5.3
+    container_name: spark-worker
+    cpus: "2.0"
+    mem_limit: "2g"
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=1536M
+      - SPARK_WORKER_OPTS=-Dspark.network.timeout=300s -Dspark.rpc.askTimeout=120s
+      - JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseG1GC -XX:+UseStringDeduplication -Djava.net.preferIPv4Stack=true"
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    ports:
+      - "8081:8081"   # Spark Worker UI
+    volumes:
+      - ./models:/app/models
+    networks:
+      - bigdata-network
+
+# --- MLflow Tracking Server ---
   mlflow:
-    image: bitnami/mlflow:latest
+    image: adacotechjp/mlflow:2.5.0
     container_name: mlflow
-    user: root              # hoặc root, để chắc MLflow có quyền ghi
+    user: "0:0"             # đảm bảo quyền ghi vào volume
     cpus: "0.25"
     mem_limit: "512m"
     ports:
@@ -182,13 +195,12 @@ services:
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5003
     entrypoint: ["mlflow", "server"]
-    command:
-      [
-        "--backend-store-uri", "file:/app/mlruns",
-        "--default-artifact-root", "file:/app/mlartifacts",
-        "--host", "0.0.0.0",
-        "--port", "5003"
-      ]
+    command: [
+      "--backend-store-uri", "file:/app/mlruns",
+      "--default-artifact-root", "file:/app/mlartifacts",
+      "--host", "0.0.0.0",
+      "--port", "5003"
+    ]
 
 
   # RabbitMQ (with management UI)
@@ -233,26 +245,18 @@ services:
   postgres:
     cpus: "1.0"
     mem_limit: "2g"
-    command:
-    - "postgres"
-    - "-c"
-    - "shared_buffers=512MB"
-    - "-c"
-    - "work_mem=4MB"
-    - "-c"
-    - "maintenance_work_mem=64MB"
-    - "-c"
-    - "effective_cache_size=1536MB"
-    - "-c"
-    - "max_connections=100"
-    - "-c"
-    - "jit=off"
-    - "-c"
-    - "autovacuum_naptime=30s"
-    - "-c"
-    - "autovacuum_vacuum_cost_limit=200"
-    - "-c"
-    - "shared_preload_libraries=pg_stat_statements"
+    command: [
+      "postgres",
+      "-c", "shared_buffers=512MB",
+      "-c", "work_mem=4MB",
+      "-c", "maintenance_work_mem=64MB",
+      "-c", "effective_cache_size=1536MB",
+      "-c", "max_connections=100",
+      "-c", "jit=off",
+      "-c", "autovacuum_naptime=30s",
+      "-c", "autovacuum_vacuum_cost_limit=200",
+      "-c", "shared_preload_libraries=pg_stat_statements"
+    ]
     networks:
       - bigdata-network
 
