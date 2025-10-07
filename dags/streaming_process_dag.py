@@ -401,18 +401,23 @@ def _calculate_wqi_simple(ph, temperature, do):
 def _send_wqi_notification(station_id, wqi_value):
     """Send push notification for WQI values"""
     try:
+        # Get station name from database
+        from include.iot_streaming.database_manager import db_manager
+        station_info = db_manager.get_station_info(station_id)
+        station_name = station_info.get('station_name', f'Station {station_id}') if station_info else f'Station {station_id}'
+        
         # Determine notification status based on WQI
         if wqi_value < 50:
             status = "critical"
-            title = f"🚨 Critical Water Quality Alert - Station {station_id}"
+            title = f"🚨 Critical Water Quality Alert - {station_name}"
             message = f"Current WQI is {wqi_value:.1f}. Immediate action required!"
         elif wqi_value < 60:
             status = "warning"
-            title = f"⚠️ Water Quality Warning - Station {station_id}"
+            title = f"⚠️ Water Quality Warning - {station_name}"
             message = f"Current WQI is {wqi_value:.1f}. Monitor closely."
         elif wqi_value > 80:
             status = "excellent"
-            title = f"✅ Excellent Water Quality - Station {station_id}"
+            title = f"✅ Excellent Water Quality - {station_name}"
             message = f"Current WQI is {wqi_value:.1f}. Great water quality!"
         else:
             # Normal range, no notification needed
