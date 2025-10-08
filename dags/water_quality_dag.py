@@ -22,10 +22,6 @@ default_args = {
     catchup=False
 )
 
-
-
-
-
 def water_quality_processing():
     # mount local models folder vào /app/models
     model_mount = Mount(

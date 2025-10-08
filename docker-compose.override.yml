@@ -133,6 +133,9 @@ services:
       - kafka_data:/var/lib/kafka/data
     networks:
       - bigdata-network
+
+ 
+
   # Spark Master and Worker Nodes
   spark-master:
     image: apache/spark:3.5.3

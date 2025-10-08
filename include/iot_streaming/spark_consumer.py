@@ -56,8 +56,8 @@ class SparkKafkaConsumer:
                 logger.warning(f"⚠️ Cluster availability check failed: {e}")
                 spark_cluster_available = False
             
-            # Always use local mode for now to avoid networking issues
-            if False:  # Disabled cluster mode completely
+            # Use cluster mode to see jobs in Spark UI
+            if True:  # Enable cluster mode to see jobs in Spark UI
                 # Running in Docker/Airflow - use Spark cluster with enhanced networking config
                 self.spark = SparkSession.builder \
                     .appName("WaterQualitySparkConsumer") \
