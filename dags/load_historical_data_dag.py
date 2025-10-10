@@ -245,31 +245,62 @@ def save_models_to_mlflow(**context):
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5003")
     mlflow.set_tracking_uri(tracking_uri)
     
+    # Temporarily disable monkey-patch to allow model registration
+    # try:
+    #     from mlflow.tracking import _model_registry
+    #     from mlflow.tracking import client
+    #     
+    #     # Patch at multiple levels to completely disable logged_model feature
+    #     def _noop_create_logged_model(*args, **kwargs):
+    #         logger.debug("Skipping _create_logged_model call (compatibility fix)")
+    #         return None
+    #     
+    #     # Patch tracking client
+    #     if hasattr(client, 'MlflowClient'):
+    #         original_method = getattr(client.MlflowClient, '_create_logged_model', None)
+    #         if original_method:
+    #             client.MlflowClient._create_logged_model = _noop_create_logged_model
+    #     
+    #     # Patch fluent API
+    #     from mlflow.tracking import fluent
+    #     if hasattr(fluent, '_create_logged_model'):
+    #         fluent._create_logged_model = _noop_create_logged_model
+    #         
+    #     logger.info("✅ Applied MLflow compatibility patch")
+    # except Exception as patch_err:
+    #     logger.warning(f"Could not apply MLflow patch: {patch_err}")
+    
+    logger.info("ℹ️ Skipping MLflow compatibility patch to allow model registration")
+    
     # Handle experiment creation/selection with error handling
     experiment_name = "water_quality_models"
+    experiment = None
+    
     try:
-        # Try to set existing experiment
-        mlflow.set_experiment(experiment_name)
-        logger.info(f"✅ Using existing experiment: {experiment_name}")
+        # Try to get existing experiment
+        client = mlflow.tracking.MlflowClient()
+        experiment = client.get_experiment_by_name(experiment_name)
+        
+        if experiment is not None and experiment.lifecycle_stage != 'deleted':
+            mlflow.set_experiment(experiment_name)
+            logger.info(f"✅ Using existing experiment: {experiment_name}")
+        else:
+            # Experiment not found or deleted, create new one
+            raise Exception("Experiment not found or deleted")
+            
     except Exception as e:
-        logger.warning(f"⚠️ Experiment '{experiment_name}' not found or deleted: {e}")
+        logger.warning(f"⚠️ Experiment '{experiment_name}' not found: {e}")
         logger.info("🔄 Creating new experiment...")
         
-        # Create new experiment with timestamp to avoid conflicts
-        timestamp = dt.datetime.now().strftime('%Y%m%d_%H%M%S')
-        new_experiment_name = f"water_quality_models_{timestamp}"
-        
         try:
-            # Create experiment via MLflow client
+            # Create experiment
             client = mlflow.tracking.MlflowClient()
-            experiment = client.create_experiment(new_experiment_name)
-            mlflow.set_experiment(new_experiment_name)
-            logger.info(f"✅ Created new experiment: {new_experiment_name}")
+            experiment_id = client.create_experiment(experiment_name)
+            mlflow.set_experiment(experiment_name)
+            logger.info(f"✅ Created new experiment: {experiment_name} (ID: {experiment_id})")
         except Exception as create_error:
             logger.error(f"❌ Failed to create experiment: {create_error}")
-            # Fallback to default experiment
-            mlflow.set_experiment("Default")
-            logger.info("ℹ️ Using default experiment as fallback")
+            raise
 
     # 2) Đường dẫn file model
     xgb_path     = './models/xgb.pkl'
@@ -381,45 +412,72 @@ def save_models_to_mlflow(**context):
             except Exception as sig_err:
                 logger.warning(f"Could not infer scaler signature automatically: {sig_err}")
 
-            class _ScalerPyFuncModel(mlflow.pyfunc.PythonModel):
-                def __init__(self, fitted_scaler):
-                    self._scaler = fitted_scaler
-
-                def predict(self, context, model_input):
-                    try:
-                        if isinstance(model_input, pd.DataFrame):
-                            input_array = model_input.values
-                        elif isinstance(model_input, np.ndarray):
-                            input_array = model_input
-                        else:
-                            input_array = np.asarray(model_input)
-                        return self._scaler.transform(input_array)
-                    except Exception as e:
-                        raise e
-
-            mlflow.pyfunc.log_model(
-                python_model=_ScalerPyFuncModel(scaler),
-                name="scaler_model",
-                registered_model_name="water_quality_scaler",
-                input_example=scaler_input_df,
-                signature=scaler_signature
-            )
-            logger.info("✅ Scaler registered to MLflow with pyfunc wrapper")
+            # Log scaler - fallback to pickle artifact if log_model fails
+            try:
+                model_info = mlflow.sklearn.log_model(
+                    sk_model=scaler,
+                    name="scaler_model",
+                    input_example=scaler_input_df,
+                    signature=scaler_signature
+                )
+                logger.info("✅ Scaler logged to MLflow with sklearn flavor")
+                
+                # Register model separately
+                try:
+                    mlflow.register_model(
+                        model_uri=f"runs:/{mlflow.active_run().info.run_id}/scaler_model",
+                        name="water_quality_scaler"
+                    )
+                    logger.info("✅ Scaler registered to model registry")
+                except Exception as reg_err:
+                    logger.warning(f"⚠️ Could not register scaler: {reg_err}")
+                    
+            except Exception as log_err:
+                logger.warning(f"⚠️ sklearn.log_model failed: {log_err}")
+                logger.info("🔄 Falling back to artifact logging...")
+                # Fallback: save as pickle artifact
+                with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
+                    pickle.dump(scaler, f)
+                    temp_path = f.name
+                mlflow.log_artifact(temp_path, artifact_path="scaler_model")
+                os.remove(temp_path)
+                logger.info("✅ Scaler saved as artifact (fallback method)")
 
         # Log tất cả models có sẵn (chỉ log models thực sự)
         for model_name, model_obj in models.items():
             if model_name == 'xgb' and model_obj != "spark_pipeline_available":
-                # Log XGBoost model
-                n_features = getattr(model_obj, "n_features_in_", 10)  # default 10 features
+                # Log XGBoost model with fallback
+                n_features = getattr(model_obj, "n_features_in_", 10)
                 sample_input = np.zeros((1, n_features))
                 
-                mlflow.xgboost.log_model(
-                    model_obj,
-                    name=f"{model_name}_model",
-                    registered_model_name=f"water_quality_{model_name}_model",
-                    input_example=sample_input
-                )
-                logger.info(f"✅ {model_name.upper()} model registered to MLflow")
+                try:
+                    model_info = mlflow.xgboost.log_model(
+                        model_obj,
+                        name=f"{model_name}_model",
+                        input_example=sample_input
+                    )
+                    logger.info(f"✅ {model_name.upper()} model logged to MLflow")
+                    
+                    # Register model separately
+                    try:
+                        mlflow.register_model(
+                            model_uri=f"runs:/{mlflow.active_run().info.run_id}/{model_name}_model",
+                            name=f"water_quality_{model_name}_model"
+                        )
+                        logger.info(f"✅ {model_name.upper()} model registered")
+                    except Exception as reg_err:
+                        logger.warning(f"⚠️ Could not register {model_name}: {reg_err}")
+                        
+                except Exception as log_err:
+                    logger.warning(f"⚠️ xgboost.log_model failed: {log_err}")
+                    logger.info("🔄 Falling back to artifact logging...")
+                    # Fallback: save as pickle
+                    with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
+                        pickle.dump(model_obj, f)
+                        temp_path = f.name
+                    mlflow.log_artifact(temp_path, artifact_path=f"{model_name}_model")
+                    os.remove(temp_path)
+                    logger.info(f"✅ {model_name.upper()} saved as artifact")
                 
             elif model_name == 'rf' and model_obj == "spark_pipeline_available":
                 # RF là Spark pipeline, không thể log vào MLflow trực tiếp
@@ -434,13 +492,34 @@ def save_models_to_mlflow(**context):
             if best_name == 'xgb' and best_model_obj != "spark_pipeline_available":
                 n_features = getattr(best_model_obj, "n_features_in_", 10)
                 sample_input = np.zeros((1, n_features))
-                mlflow.xgboost.log_model(
-                    best_model_obj,
-                    name="best_model",
-                    registered_model_name="water_quality_best_model",
-                    input_example=sample_input
-                )
-                logger.info(f"✅ Best model ({best_name.upper()}) registered as water_quality_best_model")
+                
+                try:
+                    model_info = mlflow.xgboost.log_model(
+                        best_model_obj,
+                        name="best_model",
+                        input_example=sample_input
+                    )
+                    logger.info(f"✅ Best model ({best_name.upper()}) logged")
+                    
+                    # Register model separately
+                    try:
+                        mlflow.register_model(
+                            model_uri=f"runs:/{mlflow.active_run().info.run_id}/best_model",
+                            name="water_quality_best_model"
+                        )
+                        logger.info(f"✅ Best model registered as water_quality_best_model")
+                    except Exception as reg_err:
+                        logger.warning(f"⚠️ Could not register best model: {reg_err}")
+                        
+                except Exception as log_err:
+                    logger.warning(f"⚠️ Best model log_model failed: {log_err}")
+                    # Fallback: save as pickle
+                    with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
+                        pickle.dump(best_model_obj, f)
+                        temp_path = f.name
+                    mlflow.log_artifact(temp_path, artifact_path="best_model")
+                    os.remove(temp_path)
+                    logger.info(f"✅ Best model saved as artifact")
             elif best_name == 'rf' and best_model_obj == "spark_pipeline_available":
                 # RF pipeline không thể register như model, chỉ log artifact
                 mlflow.log_artifact('./models/rf_pipeline', artifact_path="best_model_rf_pipeline")
@@ -572,7 +651,7 @@ def load_historical_data_and_train_ensemble() :
         task_id='train_model',
         image='airflow/iot_stream:ensemble',
         container_name='spark_ensemble_training',
-        command='python /app/spark/spark_jobs/train_ensemble_model.py',
+        command='python3 /app/spark_jobs/train_ensemble_model.py',
         api_version='auto',
         auto_remove='success',
         docker_url='unix://var/run/docker.sock',  # Sử dụng Unix socket thay vì TCP

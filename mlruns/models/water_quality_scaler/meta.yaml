@@ -1,8 +1,0 @@
-aliases:
-  Production: '1'
-creation_timestamp: 1757941076466
-deployment_job_id: null
-deployment_job_state: null
-description: ''
-last_updated_timestamp: 1758448698762
-name: water_quality_scaler
