@@ -296,8 +296,8 @@ class SparkKafkaConsumer:
                         .config("spark.driver.memory", "2g") \
                         .config("spark.driver.maxResultSize", "1g") \
                         .config("spark.executor.memory", "1g") \
-                        .config("spark.driver.bindAddress", "0.0.0.0") \
-                        .config("spark.driver.host", os.environ.get("SPARK_DRIVER_HOST", "api-server")) \
+                        .config("spark.driver.bindAddress", "127.0.0.1") \
+                        .config("spark.driver.host", "127.0.0.1") \
                         .config("spark.pyspark.python", python_executable) \
                         .config("spark.pyspark.driver.python", python_executable) \
                         .config("spark.executorEnv.PYSPARK_PYTHON", python_executable) \
@@ -307,6 +307,10 @@ class SparkKafkaConsumer:
                         .config("spark.sql.adaptive.coalescePartitions.minPartitionSize", "1MB") \
                         .config("spark.ui.enabled", "true") \
                         .config("spark.ui.port", os.environ.get("SPARK_UI_PORT", "4040")) \
+                        .config("spark.network.timeout", "120s") \
+                        .config("spark.executor.heartbeatInterval", "20s") \
+                        .config("spark.rpc.askTimeout", "60s") \
+                        .config("spark.rpc.lookupTimeout", "60s") \
                         .config("spark.ui.showConsoleProgress", "true") \
                         .config("spark.port.maxRetries", "100") \
                         .getOrCreate()
