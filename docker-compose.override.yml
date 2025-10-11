@@ -145,8 +145,10 @@ services:
     mem_limit: "2g"
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5003
-      - SPARK_MASTER_OPTS=-Dspark.deploy.defaultCores=2 -Dspark.network.timeout=300s -Dspark.rpc.askTimeout=120s
+      - SPARK_MASTER_OPTS=-Dspark.deploy.defaultCores=2 -Dspark.network.timeout=300s -Dspark.rpc.askTimeout=120s -Dspark.executorEnv.PYSPARK_PYTHON=/usr/bin/python3 -Dspark.pyspark.python=/usr/bin/python3 -Dspark.pyspark.driver.python=/usr/bin/python3
       - JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseG1GC -XX:+UseStringDeduplication -Djava.net.preferIPv4Stack=true"
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
     command: >
       /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
       --host spark-master --port 7077 --webui-port 8080
@@ -158,7 +160,7 @@ services:
     networks:
       - bigdata-network
 
-# --- Spark Worker ---
+  # --- Spark Worker ---
   spark-worker:
     image: apache/spark:3.5.3
     container_name: spark-worker
@@ -169,17 +171,25 @@ services:
     environment:
       - SPARK_WORKER_CORES=2
       - SPARK_WORKER_MEMORY=1536M
-      - SPARK_WORKER_OPTS=-Dspark.network.timeout=300s -Dspark.rpc.askTimeout=120s
+      - SPARK_WORKER_RECONNECT_INTERVAL=10s
+      - SPARK_WORKER_MAX_RETRIES=5
       - JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseG1GC -XX:+UseStringDeduplication -Djava.net.preferIPv4Stack=true"
+      - PYSPARK_PYTHON=/usr/bin/python3   # Chỉ định đường dẫn Python
+      - SPARK_WORKER_OPTS=-Dspark.executorEnv.PYSPARK_PYTHON=/usr/bin/python3 -Dspark.pyspark.python=/usr/bin/python3 -Dspark.python.worker.reuse=true -Dspark.network.timeout=300s -Dspark.rpc.askTimeout=120s
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
     command: >
-      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
-      spark://spark-master:7077
+      sh -lc "apt-get update && apt-get install -y python3 python3-distutils || true; \
+      ln -sf /usr/bin/python3 /usr/local/bin/python || true; \
+      exec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
     ports:
       - "8081:8081"   # Spark Worker UI
     volumes:
       - ./models:/app/models
     networks:
       - bigdata-network
+    restart: always
+
 
 # --- MLflow Tracking Server ---
   mlflow:

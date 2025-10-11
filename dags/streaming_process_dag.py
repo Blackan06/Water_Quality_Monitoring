@@ -363,22 +363,25 @@ def _process_single_record(data):
     else:
         measurement_time = datetime.now(timezone.utc)
 
+    # Calculate WQI before insert to persist into raw_sensor_data
+    wqi_value = _calculate_wqi_simple(
+        ph if ph is not None else 7.0,
+        temperature if temperature is not None else 25.0,
+        do_val if do_val is not None else 8.0,
+    )
+
     raw_record = {
         "station_id": station_id,
         "measurement_time": measurement_time,
         "ph": ph if ph is not None else 7.0,
         "temperature": temperature if temperature is not None else 25.0,
         "do": do_val if do_val is not None else 8.0,
+        "wqi": wqi_value,
     }
 
     if db_manager.insert_raw_data(raw_record):
         logger.info("✅ Raw data inserted for station %s at %s", station_id, measurement_time)
-        
-        # Calculate WQI and send notification
-        wqi_value = _calculate_wqi_simple(ph if ph is not None else 7.0, 
-                                        temperature if temperature is not None else 25.0, 
-                                        do_val if do_val is not None else 8.0)
-        
+        # Send notification based on computed WQI
         _send_wqi_notification(station_id, wqi_value)
     else:
         logger.warning("⚠️ Failed to insert raw data for station %s", station_id)

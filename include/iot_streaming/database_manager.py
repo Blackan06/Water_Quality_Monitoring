@@ -105,9 +105,7 @@ class DatabaseManager:
                     VALUES 
                         (0, 'Default Station', 'Default Location', true),
                         (1, 'Station 1', 'Location 1', true),
-                        (2, 'Station 2', 'Location 2', true),
-                        (3, 'Station 3', 'Location 3', true),
-                        (4, 'Station 4', 'Location 4', true)
+                        (2, 'Station 2', 'Location 2', true)
                     ON CONFLICT (station_id) DO NOTHING
                 """)
                 logger.info("Added default monitoring stations")
@@ -373,7 +371,7 @@ class DatabaseManager:
             return False
 
     def insert_raw_data(self, raw_data):
-        """Lưu dữ liệu thô từ sensors (không bao gồm WQI - WQI sẽ được tính sau)"""
+        """Lưu dữ liệu thô; nếu có WQI thì lưu kèm vào raw_sensor_data.wqi và set is_processed."""
         try:
             conn = self.get_connection()
             if not conn:
@@ -381,19 +379,36 @@ class DatabaseManager:
             
             cur = conn.cursor()
             
-            insert_query = sql.SQL("""
-                INSERT INTO raw_sensor_data 
-                (station_id, measurement_time, ph, temperature, "do")
-                VALUES (%s, %s, %s, %s, %s)
-            """)
-            
-            cur.execute(insert_query, (
-                raw_data['station_id'],
-                raw_data['measurement_time'],
-                raw_data.get('ph', 0),
-                raw_data.get('temperature', 0),
-                raw_data.get('do', 0)
-            ))
+            if 'wqi' in raw_data and raw_data['wqi'] is not None:
+                insert_query = sql.SQL("""
+                    INSERT INTO raw_sensor_data 
+                    (station_id, measurement_time, ph, temperature, "do", wqi, is_processed)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """)
+                params = (
+                    raw_data['station_id'],
+                    raw_data['measurement_time'],
+                    raw_data.get('ph', 0),
+                    raw_data.get('temperature', 0),
+                    raw_data.get('do', 0),
+                    raw_data.get('wqi', 0),
+                    True,
+                )
+            else:
+                insert_query = sql.SQL("""
+                    INSERT INTO raw_sensor_data 
+                    (station_id, measurement_time, ph, temperature, "do")
+                    VALUES (%s, %s, %s, %s, %s)
+                """)
+                params = (
+                    raw_data['station_id'],
+                    raw_data['measurement_time'],
+                    raw_data.get('ph', 0),
+                    raw_data.get('temperature', 0),
+                    raw_data.get('do', 0),
+                )
+
+            cur.execute(insert_query, params)
             
             conn.commit()
             cur.close()

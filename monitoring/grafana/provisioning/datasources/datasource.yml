@@ -6,7 +6,7 @@ datasources:
   - name: PostgreSQL
     type: postgres
     access: proxy
-    url: postgres:5432
+    url: 194.238.16.14:5432
     database: wqi_db
     user: postgres
     isDefault: true
@@ -17,6 +17,6 @@ datasources:
       maxIdleConns: 100
       connMaxLifetime: 14400
     secureJsonData:
-      password: postgres1234
+      password: postgres
     version: 1
     uid: postgresql
