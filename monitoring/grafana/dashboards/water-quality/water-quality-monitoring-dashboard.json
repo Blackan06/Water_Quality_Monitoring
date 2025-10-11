@@ -463,7 +463,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  measurement_date as time,\n  wqi as value,\n  'Actual WQI' as metric\nFROM historical_wqi_data h\nWHERE h.station_id = $station_id\n  AND COALESCE(is_prediction, false) = false\n  AND measurement_date >= $__timeFrom()\n  AND measurement_date <= $__timeTo()\nORDER BY measurement_date\nLIMIT 500",
+          "rawSql": "SELECT\n  measurement_date as time,\n  wqi as value\nFROM historical_wqi_data h\nWHERE h.station_id = $station_id\n  AND measurement_date >= $__timeFrom()\n  AND measurement_date <= $__timeTo()\nORDER BY measurement_date\nLIMIT 500",
           "refId": "A"
         },
         {
@@ -489,6 +489,202 @@
           "rawSql": "SELECT\n  $__timeFrom() as time,\n  50 as value\nUNION ALL\nSELECT\n  $__timeTo() as time,\n  50 as value",
           "refId": "C",
           "hide": false
+        }
+      ],
+      "title": "WQI Historical Trends",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgresql"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Historical WQI"
+            },
+            "properties": [
+              {
+                "id": "custom.color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Predicted WQI"
+            },
+            "properties": [
+              {
+                "id": "custom.color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WQI Tốt Threshold"
+            },
+            "properties": [
+              {
+                "id": "custom.color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "WQI Tốt (≥70)"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [10, 10],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WQI Cảnh báo Threshold"
+            },
+            "properties": [
+              {
+                "id": "custom.color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "WQI Cảnh báo (<50)"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [10, 10],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgresql"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  measurement_date as time,\n  wqi as value,\n  'Historical WQI' as metric\nFROM historical_wqi_data h\nWHERE h.station_id = $station_id\n  AND measurement_date >= $__timeFrom()\n  AND measurement_date <= $__timeTo()\n\nUNION ALL\n\nSELECT\n  prediction_date as time,\n  wqi_prediction as value,\n  'Predicted WQI' as metric\nFROM wqi_predictions p\nWHERE p.station_id = $station_id\n  AND prediction_date >= $__timeFrom()\n  AND prediction_date <= $__timeTo()\n\nORDER BY time",
+          "refId": "A"
         },
         {
           "datasource": {
@@ -498,11 +694,24 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  measurement_date as time,\n  wqi as value,\n  'Predicted WQI' as metric\nFROM historical_wqi_data h\nWHERE h.station_id = $station_id\n  AND COALESCE(is_prediction, false) = true\n  AND measurement_date >= $__timeFrom()\n  AND measurement_date <= $__timeTo()\nORDER BY measurement_date\nLIMIT 500",
-          "refId": "D"
+          "rawSql": "SELECT\n  $__timeFrom() as time,\n  70 as value,\n  'WQI Tốt Threshold' as metric\nUNION ALL\nSELECT\n  $__timeTo() as time,\n  70 as value,\n  'WQI Tốt Threshold' as metric",
+          "refId": "B",
+          "hide": false
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgresql"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeFrom() as time,\n  50 as value,\n  'WQI Cảnh báo Threshold' as metric\nUNION ALL\nSELECT\n  $__timeTo() as time,\n  50 as value,\n  'WQI Cảnh báo Threshold' as metric",
+          "refId": "C",
+          "hide": false
         }
       ],
-      "title": "WQI Historical Trends",
+      "title": "WQI Historical & Predicted Trends",
       "type": "timeseries"
     }
   ],
