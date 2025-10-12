@@ -104,8 +104,8 @@ def on_kafka_event(event=None, **kwargs):
             from include.iot_streaming.spark_consumer import process_kafka_message_with_spark
             logger.info("✅ Successfully imported Spark consumer")
             
-            # Process message with Spark
-            spark_result = process_kafka_message_with_spark(payload)
+            # Process message with Spark (use cleaned JSON to avoid parsing errors)
+            spark_result = process_kafka_message_with_spark(cleaned_payload)
             logger.info(f"📊 Spark processing result: {spark_result}")
             
             if spark_result.get("success", False):
@@ -163,6 +163,17 @@ def on_kafka_event(event=None, **kwargs):
                     logger.error(f"❌ Error processing single record: {e}")
         except Exception as e:
             logger.error(f"❌ Fallback processing failed: {e}")
+        else:
+            # If fallback succeeded, mark as successful so downstream trigger can run
+            try:
+                if isinstance(data, list):
+                    spark_result = {"success": True, "data": data}
+                elif isinstance(data, dict):
+                    spark_result = {"success": True, "data": [data]}
+                else:
+                    spark_result = {"success": False}
+            except Exception:
+                spark_result = {"success": False}
 
     # ===== TRIGGER EXTERNAL DAG (Simplified Approach) =====
     try:

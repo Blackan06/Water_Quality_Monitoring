@@ -49,11 +49,20 @@ class PredictionService:
                     wqi_prediction DECIMAL(6,2),
                     confidence_score DECIMAL(5,3),
                     model_type VARCHAR(50),
+                    prediction_date DATE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(station_id, prediction_time, prediction_horizon_months)
                 )
             """)
             logger.info("Ensured wqi_predictions table exists")
+            # Backward-compatible migration: add column if missing
+            try:
+                cur.execute("""
+                    ALTER TABLE wqi_predictions
+                    ADD COLUMN IF NOT EXISTS prediction_date DATE
+                """)
+            except Exception:
+                pass
             
             # Save predictions
             saved_count = 0
@@ -119,13 +128,19 @@ class PredictionService:
             
             logger.info(f"✅ Saved {saved_count} predictions to database")
             
-            # Lưu predictions vào historical_wqi_data để dashboard hiển thị
-            logger.info(f"📊 Prediction results to save: {prediction_results}")
-            historical_saved = self._save_predictions_to_historical(prediction_results)
-            if historical_saved:
-                logger.info(f"✅ Saved {historical_saved} predictions to historical_wqi_data")
-            else:
-                logger.warning("⚠️ No predictions saved to historical_wqi_data")
+            # Optional: save predictions into historical_wqi_data (disabled by default)
+            try:
+                if os.getenv('SAVE_PREDICTIONS_TO_HISTORICAL', 'false').lower() == 'true':
+                    logger.info(f"📊 Prediction results to save: {prediction_results}")
+                    historical_saved = self._save_predictions_to_historical(prediction_results)
+                    if historical_saved:
+                        logger.info(f"✅ Saved {historical_saved} predictions to historical_wqi_data")
+                    else:
+                        logger.warning("⚠️ No predictions saved to historical_wqi_data")
+                else:
+                    logger.info("ℹ️ Skipping save to historical_wqi_data (SAVE_PREDICTIONS_TO_HISTORICAL=false)")
+            except Exception as _:
+                logger.warning("⚠️ Skipped saving predictions to historical due to error in optional path")
             
             return True
             
@@ -234,7 +249,8 @@ class PredictionService:
             
             # Make predictions for each horizon
             predictions = {}
-            latest_time = historical_data[0][4] if historical_data else datetime.now()  # measurement_time
+            # measurement_time của bản ghi mới nhất (không dùng dữ liệu dự đoán làm base)
+            latest_time = historical_data[0][4] if historical_data else datetime.now()
             
             for horizon_months in horizons:
                 try:
@@ -303,7 +319,7 @@ class PredictionService:
                     except Exception:
                         confidence_score = 0.5
                     
-                    # Calculate prediction time
+                    # Calculate prediction time dựa trên measurement_time thật sự gần nhất
                     prediction_time = latest_time + relativedelta(months=horizon_months)
                     
                     predictions[f'{horizon_months}month'] = {
@@ -814,6 +830,35 @@ class PredictionService:
             
             try:
                 client = mlflow.tracking.MlflowClient()
+                # 1) Registry-first: if any Production version exists, use it
+                registry_candidates = [
+                    ('water_quality_xgb_model', 'xgb'),
+                    ('water_quality_lstm_model', 'lstm'),
+                    ('water_quality_rf_pipeline', 'rf'),
+                    ('water_quality_best_model', 'xgb'),  # optional pointer name
+                ]
+                for name, model_type in registry_candidates:
+                    try:
+                        # Prefer alias API if available
+                        try:
+                            mv = client.get_model_version_by_alias(name, "Production")
+                            if mv is not None:
+                                logger.info(f"🏷️ Using Production alias from registry: {name} -> {model_type}")
+                                return model_type
+                        except Exception:
+                            pass
+                        # Fallback to stage check on latest versions
+                        try:
+                            latests = client.get_latest_versions(name=name)
+                            for mv in latests or []:
+                                stage = getattr(mv, 'current_stage', '')
+                                if stage == 'Production':
+                                    logger.info(f"🏷️ Using Production stage from registry: {name} -> {model_type}")
+                                    return model_type
+                        except Exception:
+                            pass
+                    except Exception:
+                        continue
                 
                 # Look for the best model in experiments
                 best_model_type = 'xgb'  # default

@@ -251,11 +251,29 @@ def generate_alerts_and_notifications(**context):
                 # Xác định status dựa trên WQI
                 status = "good" if wqi_prediction > 50 else "danger" 
                 
+                # Lấy tên trạm để đưa vào tiêu đề thông báo
+                station_name = None
+                try:
+                    conn2 = db_manager.get_connection()
+                    if conn2:
+                        cur2 = conn2.cursor()
+                        cur2.execute("""
+                            SELECT station_name FROM monitoring_stations WHERE station_id = %s
+                        """, (station_id,))
+                        row = cur2.fetchone()
+                        if row:
+                            station_name = row[0]
+                        cur2.close()
+                        conn2.close()
+                except Exception:
+                    station_name = None
+
                 # Gửi thông báo
                 account_id = 3  # Sử dụng station_id làm account_id
                 message = analysis
+                title = f"Kết quả WQI - {station_name}" if station_name else "Kết quả WQI"
                 
-                if push_notification(account_id, "Kết quả WQI", message, status):
+                if push_notification(account_id, title, message, status):
                     notifications_sent += 1
                     logger.info(f"✅ Notification sent for station {station_id}: WQI={wqi_prediction}, Status={status}")
                 else:

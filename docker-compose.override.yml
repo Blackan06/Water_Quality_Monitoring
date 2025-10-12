@@ -174,7 +174,6 @@ services:
       - SPARK_WORKER_RECONNECT_INTERVAL=10s
       - SPARK_WORKER_MAX_RETRIES=5
       - JAVA_OPTS="-Xms512m -Xmx1536m -XX:+UseG1GC -XX:+UseStringDeduplication -Djava.net.preferIPv4Stack=true"
-      - PYSPARK_PYTHON=/usr/bin/python3   # Chỉ định đường dẫn Python
       - SPARK_WORKER_OPTS=-Dspark.executorEnv.PYSPARK_PYTHON=/usr/bin/python3 -Dspark.pyspark.python=/usr/bin/python3 -Dspark.python.worker.reuse=true -Dspark.network.timeout=300s -Dspark.rpc.askTimeout=120s
       - PYSPARK_PYTHON=/usr/bin/python3
       - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
@@ -189,7 +188,6 @@ services:
     networks:
       - bigdata-network
     restart: always
-
 
 # --- MLflow Tracking Server ---
   mlflow:

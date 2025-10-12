@@ -1002,7 +1002,7 @@ class DatabaseManager:
             cur.execute("""
                 SELECT COUNT(*) as count
                 FROM raw_sensor_data
-                WHERE measurement_time >= NOW() - INTERVAL '7 days'
+                WHERE is_processed = false
             """)
             raw_count = cur.fetchone()[0]
             
@@ -1167,6 +1167,7 @@ class DatabaseManager:
                 SELECT ph, temperature, "do", wqi, measurement_date::timestamp AS measurement_time
                 FROM historical_wqi_data
                 WHERE station_id = %s
+                AND (is_prediction IS FALSE OR is_prediction = FALSE)
                 ORDER BY measurement_date DESC
                 LIMIT %s
                 """,
