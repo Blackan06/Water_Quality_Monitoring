@@ -281,9 +281,9 @@ def ensure_database_exists():
 
 def seed_default_stations():
     stations = [
-        (0, 'Station 0', 'Default location 0', None, None, 'Seeded by DAG'),
-        (1, 'Station 1', 'Default location 1', None, None, 'Seeded by DAG'),
-        (2, 'Station 2', 'Default location 2', None, None, 'Seeded by DAG'),
+        (0, 'Trạm quan trắc Tiền Giang', 'Địa điểm Tiền Giang', None, None, 'Tiền Giang'),
+        (1, 'Trạm quan trắc Đồng Tháp', 'Địa điểm Đồng Tháp', None, None, 'Đồng Tháp'),
+        (2, 'Trạm quan trắc Cần Thơ', 'Địa điểm Cần Thơ', None, None, 'Cần Thơ'),
     ]
     with _get_db_conn() as conn:
         with conn.cursor() as cur:

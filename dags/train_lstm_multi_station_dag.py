@@ -316,6 +316,102 @@ def show_training_summary(**context):
     })
 
 
+def log_lstm_to_mlflow(**context):
+    """Log and register the LSTM model (.h5) to MLflow, then set stage."""
+    try:
+        import os
+        import tempfile
+        import json as _json
+        # Lazy import MLflow/keras to avoid DagBag overhead
+        import mlflow
+        from mlflow.tracking import MlflowClient
+        try:
+            # Prefer tf.keras
+            from tensorflow import keras as tf_keras  # type: ignore
+            keras_loader = lambda p: tf_keras.models.load_model(p)
+        except Exception:
+            try:
+                import keras  # type: ignore
+                keras_loader = lambda p: keras.models.load_model(p)
+            except Exception:
+                keras_loader = None
+
+        ti = context['task_instance']
+        model_path = ti.xcom_pull(task_ids='train_lstm_model', key='model_path')
+        test_metrics = ti.xcom_pull(task_ids='train_lstm_model', key='test_metrics') or {}
+        if not model_path or not os.path.exists(model_path):
+            logger.warning(f"LSTM model file not found at {model_path}; skipping MLflow logging")
+            return "No LSTM model to log"
+
+        tracking_uri = os.getenv('MLFLOW_TRACKING_URI', 'http://mlflow:5003')
+        mlflow.set_tracking_uri(tracking_uri)
+        experiment_name = os.getenv('MLFLOW_EXPERIMENT', 'water_quality_models')
+        client = MlflowClient()
+        exp = client.get_experiment_by_name(experiment_name)
+        if not exp or (exp and exp.lifecycle_stage == 'deleted'):
+            client.create_experiment(experiment_name)
+        mlflow.set_experiment(experiment_name)
+
+        target_stage = os.getenv('LSTM_REGISTER_STAGE', 'Staging')
+
+        with mlflow.start_run(run_name='lstm_training'):
+            # Log LSTM metrics (if any)
+            for k, v in test_metrics.items():
+                try:
+                    if isinstance(v, (int, float)):
+                        mlflow.log_metric(f"lstm_{k}", float(v))
+                except Exception:
+                    pass
+
+            # Try to log model via mlflow.keras
+            try:
+                if keras_loader is None:
+                    raise RuntimeError('No keras loader available')
+                k_model = keras_loader(model_path)
+                try:
+                    import mlflow.keras as mlk
+                except Exception:
+                    mlk = None
+                if mlk is None:
+                    raise RuntimeError('mlflow.keras unavailable')
+
+                mlk.log_model(k_model, name='lstm_model')
+                mv = mlflow.register_model(
+                    model_uri=f"runs:/{mlflow.active_run().info.run_id}/lstm_model",
+                    name='water_quality_lstm_model'
+                )
+                try:
+                    client.transition_model_version_stage(
+                        name='water_quality_lstm_model',
+                        version=mv.version,
+                        stage=target_stage,
+                        archive_existing_versions=False
+                    )
+                    logger.info(f"✅ Transitioned LSTM model to {target_stage}")
+                except Exception as st_err:
+                    logger.warning(f"Could not transition LSTM stage: {st_err}")
+                logger.info(f"✅ Logged & registered LSTM model (version {mv.version})")
+            except Exception as e:
+                logger.warning(f"Could not log/register LSTM via mlflow.keras: {e}")
+                logger.info("Falling back to artifact logging of .h5 file…")
+                mlflow.log_artifact(model_path, artifact_path='lstm_model')
+
+            # Also attach metrics JSON artifact for traceability
+            try:
+                with tempfile.NamedTemporaryFile('w', delete=False, suffix='.json') as f:
+                    _json.dump({'lstm_test_metrics': test_metrics}, f, indent=2)
+                    tmp_path = f.name
+                mlflow.log_artifact(tmp_path, artifact_path='metrics')
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+        return 'LSTM logged to MLflow'
+    except Exception as e:
+        logger.error(f"Error logging LSTM to MLflow: {e}")
+        return f"Failed to log LSTM to MLflow: {e}"
+
+
 @dag(
     dag_id='train_lstm_multi_station',
     default_args=default_args,
@@ -336,12 +432,17 @@ def train_lstm_multi_station():
         python_callable=train_lstm_model,
     )
 
+    log_mlflow_task = PythonOperator(
+        task_id='log_lstm_to_mlflow',
+        python_callable=log_lstm_to_mlflow,
+    )
+
     summary_task = PythonOperator(
         task_id='show_training_summary',
         python_callable=show_training_summary,
     )
 
-    load_task >> train_task >> summary_task
+    load_task >> train_task >> log_mlflow_task >> summary_task
 
 
 train_lstm_multi_station()

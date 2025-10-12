@@ -20,6 +20,7 @@ import json
 import numpy as np
 import pandas as pd
 import psycopg2
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -244,33 +245,18 @@ def save_models_to_mlflow(**context):
     # 1) Thiết lập MLflow tracking URI (VPS backend)
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5003")
     mlflow.set_tracking_uri(tracking_uri)
-    
-    # Temporarily disable monkey-patch to allow model registration
-    # try:
-    #     from mlflow.tracking import _model_registry
-    #     from mlflow.tracking import client
-    #     
-    #     # Patch at multiple levels to completely disable logged_model feature
-    #     def _noop_create_logged_model(*args, **kwargs):
-    #         logger.debug("Skipping _create_logged_model call (compatibility fix)")
-    #         return None
-    #     
-    #     # Patch tracking client
-    #     if hasattr(client, 'MlflowClient'):
-    #         original_method = getattr(client.MlflowClient, '_create_logged_model', None)
-    #         if original_method:
-    #             client.MlflowClient._create_logged_model = _noop_create_logged_model
-    #     
-    #     # Patch fluent API
-    #     from mlflow.tracking import fluent
-    #     if hasattr(fluent, '_create_logged_model'):
-    #         fluent._create_logged_model = _noop_create_logged_model
-    #         
-    #     logger.info("✅ Applied MLflow compatibility patch")
-    # except Exception as patch_err:
-    #     logger.warning(f"Could not apply MLflow patch: {patch_err}")
-    
-    logger.info("ℹ️ Skipping MLflow compatibility patch to allow model registration")
+    # Tránh MLflow dò registry URI qua SparkSession (gây Py4J lỗi khi Spark đóng)
+    try:
+        mlflow.set_registry_uri(os.environ.get("MLFLOW_REGISTRY_URI", tracking_uri))
+    except Exception:
+        pass
+    # Tắt Logged Models API (không tương thích với MLflow server cũ)
+    os.environ.setdefault("MLFLOW_ENABLE_LOGGED_MODEL", "false")
+    # Giới hạn timeout request để không treo lâu (giây)
+    os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "10")
+     
+    # Không monkey-patch mlflow (tránh lỗi NoneType.model_id); rely on env flag above
+    logger.info("ℹ️ Logged-models disabled via env; no monkey-patch applied")
     
     # Handle experiment creation/selection with error handling
     experiment_name = "water_quality_models"
@@ -303,19 +289,49 @@ def save_models_to_mlflow(**context):
             raise
 
     # 2) Đường dẫn file model
-    xgb_path     = './models/xgb.pkl'
-    rf_path      = './models/rf.pkl'
-    scaler_path  = './models/scaler.pkl'
-    metrics_path = './models/metrics.json'
+    # Ưu tiên thư mục models trong container Airflow thay vì đường dẫn host
+    candidates = [
+        os.getenv('AIRFLOW_MODELS_DIR', '/opt/airflow/models'),
+        '/usr/local/airflow/models',
+        os.path.join(project_root, 'models'),
+        '/app/models',
+        './models'
+    ]
+    # Chọn thư mục có chứa ít nhất một trong các file kỳ vọng
+    chosen = None
+    for cand in candidates:
+        try:
+            if os.path.exists(os.path.join(cand, 'metrics.json')) or \
+               os.path.exists(os.path.join(cand, 'xgb.pkl')) or \
+               os.path.exists(os.path.join(cand, 'rf_pipeline')):
+                chosen = cand
+                break
+            if os.path.exists(cand):
+                chosen = cand  # fallback to existing dir
+        except Exception:
+            continue
+    models_dir = chosen or candidates[0]
+    xgb_path     = os.path.join(models_dir, 'xgb.pkl')
+    scaler_path  = os.path.join(models_dir, 'scaler.pkl')
+    metrics_path = os.path.join(models_dir, 'metrics.json')
+    # Per-horizon XGB models (nếu có)
+    horizon_paths = {h: os.path.join(models_dir, f'xgb_h{h}.pkl') for h in [1, 3, 6, 12]}
 
-    # 3) Kiểm tra tồn tại của metrics (bắt buộc)
+    # 3) Kiểm tra tồn tại của metrics (không bắt buộc; nếu thiếu vẫn tiếp tục log models)
+    metrics_missing = False
     if not os.path.exists(metrics_path):
-        logger.error(f"Metrics file not found: {metrics_path}")
-        return f"Metrics file not found: {metrics_path}"
+        logger.warning(f"Metrics file not found: {metrics_path} — will continue without metrics")
+        metrics_missing = True
 
-    # 4) Load metrics
-    with open(metrics_path, 'r') as f:
-        metrics = json.load(f)
+    # 4) Load metrics nếu có
+    metrics = {}
+    if not metrics_missing:
+        try:
+            with open(metrics_path, 'r') as f:
+                metrics = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not read metrics.json: {e}")
+            metrics = {}
     
     # 5) Load scaler nếu có
     scaler = None
@@ -345,14 +361,12 @@ def save_models_to_mlflow(**context):
         logger.warning("⚠️ XGBoost model file not found")
     
     # Load Random Forest model (stored as Spark pipeline)
-    rf_pipeline_path = './models/rf_pipeline'
+    rf_pipeline_path = os.path.join(models_dir, 'rf_pipeline')
     if os.path.exists(rf_pipeline_path):
         try:
-            # RF được lưu như Spark pipeline, chúng ta sẽ note nó có sẵn
-            # nhưng không load vào memory vì cần Spark context
             logger.info("✅ Random Forest pipeline found (Spark format)")
-            # Tạo placeholder để đánh dấu RF có sẵn trong metrics
-            models['rf'] = "spark_pipeline_available"
+            # Store path so we can log with mlflow.spark later
+            models['rf'] = rf_pipeline_path
         except Exception as e:
             logger.error(f"❌ Failed to access Random Forest pipeline: {e}")
     else:
@@ -363,18 +377,50 @@ def save_models_to_mlflow(**context):
         logger.error("❌ No models could be loaded!")
         return "No valid models found to register"
 
+    # 6b) Load per-horizon XGB models nếu tồn tại
+    for h, p in horizon_paths.items():
+        if os.path.exists(p):
+            try:
+                with open(p, 'rb') as f:
+                    models[f'xgb_h{h}'] = pickle.load(f)
+                logger.info(f"✅ XGB horizon h={h} loaded successfully")
+            except (EOFError, pickle.UnpicklingError) as e:
+                logger.error(f"❌ Failed to load XGB horizon h={h}: {e}")
+        else:
+            logger.info(f"ℹ️ XGB horizon h={h} file not found (optional)")
+
     # 7) Chọn best model từ các models có sẵn
     available_metrics = {k: v for k, v in metrics.items() if k in models}
-    if not available_metrics:
-        logger.error("❌ No metrics found for available models!")
-        return "No metrics found for loaded models"
-    
-    best_name, best_info = max(available_metrics.items(), key=lambda kv: kv[1].get('r2', -float('inf')))
-    best_r2 = best_info.get('r2', 0.0)
-    logger.info(f"🏆 Best model: {best_name} (R²: {best_r2:.4f}) from available models: {list(models.keys())}")
+    best_name, best_r2 = None, None
+    if available_metrics:
+        best_name, best_info = max(available_metrics.items(), key=lambda kv: kv[1].get('r2', -float('inf')))
+        best_r2 = best_info.get('r2', 0.0)
+        logger.info(f"🏆 Best model: {best_name} (R²: {best_r2:.4f}) from available models: {list(models.keys())}")
+    else:
+        logger.warning("⚠️ No metrics available; will log models without promotion")
 
-    # 8) Bắt đầu MLflow run
-    with mlflow.start_run(run_name="comprehensive_ensemble_training"):
+    # 8) Bắt đầu MLflow run (retry ngắn + fallback file store)
+    run_ctx = None
+    for i in range(2):
+        try:
+            run_ctx = mlflow.start_run(run_name="comprehensive_ensemble_training")
+            break
+        except Exception as e:
+            logger.warning(f"MLflow start_run failed (attempt {i+1}/2): {e}")
+            time.sleep(3)
+    if run_ctx is None:
+        # Fallback to local file store to avoid blocking pipeline
+        try:
+            fallback_uri = os.getenv('MLFLOW_FALLBACK_URI', 'file:/opt/airflow/mlruns')
+            mlflow.set_tracking_uri(fallback_uri)
+            mlflow.set_registry_uri(fallback_uri)
+            run_ctx = mlflow.start_run(run_name="comprehensive_ensemble_training_fallback")
+            logger.warning(f"Using MLflow fallback store: {fallback_uri}")
+        except Exception as e:
+            logger.error(f"❌ Could not start MLflow run even with fallback: {e}")
+            return "Failed to start MLflow run"
+
+    with run_ctx:
         # Log các tham số chung
         mlflow.log_param("best_model", best_name)
         mlflow.log_param("training_date", dt.datetime.now().isoformat())
@@ -416,7 +462,7 @@ def save_models_to_mlflow(**context):
             try:
                 model_info = mlflow.sklearn.log_model(
                     sk_model=scaler,
-                    name="scaler_model",
+                    artifact_path="scaler_model",
                     input_example=scaler_input_df,
                     signature=scaler_signature
                 )
@@ -443,7 +489,11 @@ def save_models_to_mlflow(**context):
                 os.remove(temp_path)
                 logger.info("✅ Scaler saved as artifact (fallback method)")
 
-        # Log tất cả models có sẵn (chỉ log models thực sự)
+        # Log tất cả models có sẵn (chỉ log models thực sự) và đăng ký vào Registry
+        registered_versions = {}  # model_name -> (registered_model_name, version)
+        target_stage_default = os.getenv('MLFLOW_TARGET_STAGE_DEFAULT', 'Staging')
+        client = mlflow.tracking.MlflowClient()
+
         for model_name, model_obj in models.items():
             if model_name == 'xgb' and model_obj != "spark_pipeline_available":
                 # Log XGBoost model with fallback
@@ -453,20 +503,30 @@ def save_models_to_mlflow(**context):
                 try:
                     model_info = mlflow.xgboost.log_model(
                         model_obj,
-                        name=f"{model_name}_model",
-                        input_example=sample_input
+                        artifact_path=f"{model_name}_model",
+                        input_example=sample_input,
+                        registered_model_name=f"water_quality_{model_name}_model"
                     )
                     logger.info(f"✅ {model_name.upper()} model logged to MLflow")
                     
-                    # Register model separately
+                    # Fetch latest version and stage
                     try:
-                        mlflow.register_model(
-                            model_uri=f"runs:/{mlflow.active_run().info.run_id}/{model_name}_model",
-                            name=f"water_quality_{model_name}_model"
-                        )
-                        logger.info(f"✅ {model_name.upper()} model registered")
+                        latest = client.get_latest_versions(name=f"water_quality_{model_name}_model")
+                        if latest:
+                            mv = latest[0]
+                            registered_versions[model_name] = (mv.name, mv.version)
+                            try:
+                                client.transition_model_version_stage(
+                                    name=mv.name,
+                                    version=mv.version,
+                                    stage=target_stage_default,
+                                    archive_existing_versions=False
+                                )
+                                logger.info(f"✅ Transitioned {model_name} to {target_stage_default}")
+                            except Exception as st_err:
+                                logger.warning(f"⚠️ Could not transition stage for {model_name}: {st_err}")
                     except Exception as reg_err:
-                        logger.warning(f"⚠️ Could not register {model_name}: {reg_err}")
+                        logger.warning(f"⚠️ Could not fetch latest version for {model_name}: {reg_err}")
                         
                 except Exception as log_err:
                     logger.warning(f"⚠️ xgboost.log_model failed: {log_err}")
@@ -478,54 +538,141 @@ def save_models_to_mlflow(**context):
                     mlflow.log_artifact(temp_path, artifact_path=f"{model_name}_model")
                     os.remove(temp_path)
                     logger.info(f"✅ {model_name.upper()} saved as artifact")
-                
-            elif model_name == 'rf' and model_obj == "spark_pipeline_available":
-                # RF là Spark pipeline, không thể log vào MLflow trực tiếp
-                logger.info(f"ℹ️ {model_name.upper()} pipeline available but not logged (Spark format)")
-                # Log artifact path thay thế
-                mlflow.log_artifact('./models/rf_pipeline', artifact_path="rf_pipeline_model")
-                logger.info(f"✅ {model_name.upper()} pipeline logged as artifact")
-        
-        # Log best model với tên riêng
-        if best_name in models:
-            best_model_obj = models[best_name]
-            if best_name == 'xgb' and best_model_obj != "spark_pipeline_available":
-                n_features = getattr(best_model_obj, "n_features_in_", 10)
+            elif model_name.startswith('xgb_h'):
+                # Log các model horizon XGB
+                n_features = getattr(model_obj, "n_features_in_", 10)
                 sample_input = np.zeros((1, n_features))
-                
                 try:
                     model_info = mlflow.xgboost.log_model(
-                        best_model_obj,
-                        name="best_model",
-                        input_example=sample_input
+                        model_obj,
+                        artifact_path=f"{model_name}",
+                        input_example=sample_input,
+                        registered_model_name=f"water_quality_{model_name}"
                     )
-                    logger.info(f"✅ Best model ({best_name.upper()}) logged")
-                    
-                    # Register model separately
+                    logger.info(f"✅ {model_name} logged to MLflow")
                     try:
-                        mlflow.register_model(
-                            model_uri=f"runs:/{mlflow.active_run().info.run_id}/best_model",
-                            name="water_quality_best_model"
-                        )
-                        logger.info(f"✅ Best model registered as water_quality_best_model")
+                        latest = client.get_latest_versions(name=f"water_quality_{model_name}")
+                        if latest:
+                            mv = latest[0]
+                            registered_versions[model_name] = (mv.name, mv.version)
+                            try:
+                                client.transition_model_version_stage(
+                                    name=mv.name,
+                                    version=mv.version,
+                                    stage=target_stage_default,
+                                    archive_existing_versions=False
+                                )
+                                logger.info(f"✅ Transitioned {model_name} to {target_stage_default}")
+                            except Exception as st_err:
+                                logger.warning(f"⚠️ Could not transition stage for {model_name}: {st_err}")
                     except Exception as reg_err:
-                        logger.warning(f"⚠️ Could not register best model: {reg_err}")
-                        
+                        logger.warning(f"⚠️ Could not fetch latest version for {model_name}: {reg_err}")
                 except Exception as log_err:
-                    logger.warning(f"⚠️ Best model log_model failed: {log_err}")
-                    # Fallback: save as pickle
+                    logger.warning(f"⚠️ log_model failed for {model_name}: {log_err}")
                     with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
-                        pickle.dump(best_model_obj, f)
+                        pickle.dump(model_obj, f)
                         temp_path = f.name
-                    mlflow.log_artifact(temp_path, artifact_path="best_model")
+                    mlflow.log_artifact(temp_path, artifact_path=f"{model_name}")
                     os.remove(temp_path)
-                    logger.info(f"✅ Best model saved as artifact")
-            elif best_name == 'rf' and best_model_obj == "spark_pipeline_available":
-                # RF pipeline không thể register như model, chỉ log artifact
-                mlflow.log_artifact('./models/rf_pipeline', artifact_path="best_model_rf_pipeline")
-                logger.info(f"✅ Best model ({best_name.upper()}) pipeline logged as artifact")
+                    logger.info(f"✅ {model_name} saved as artifact")
+            elif model_name == 'lstm':
+                # Log LSTM Keras model from .h5 if present
+                try:
+                    lstm_path = model_obj
+                    try:
+                        from tensorflow import keras as tf_keras  # type: ignore
+                        k_model = tf_keras.models.load_model(lstm_path)
+                    except Exception:
+                        import keras  # type: ignore
+                        k_model = keras.models.load_model(lstm_path)
+                    try:
+                        import mlflow.keras as mlk
+                    except Exception:
+                        mlk = None
+                    if mlk is not None:
+                        mlk.log_model(k_model, artifact_path="lstm_model", registered_model_name="water_quality_lstm_model")
+                        logger.info("✅ LSTM model logged to MLflow (keras flavor)")
+                        try:
+                            latest = client.get_latest_versions(name="water_quality_lstm_model")
+                            if latest:
+                                mv = latest[0]
+                                registered_versions['lstm'] = (mv.name, mv.version)
+                                try:
+                                    client.transition_model_version_stage(
+                                        name=mv.name,
+                                        version=mv.version,
+                                        stage=target_stage_default,
+                                        archive_existing_versions=False
+                                    )
+                                    logger.info(f"✅ Transitioned LSTM to {target_stage_default}")
+                                except Exception as st_err:
+                                    logger.warning(f"⚠️ Could not transition stage for LSTM: {st_err}")
+                        except Exception as reg_err:
+                            logger.warning(f"⚠️ Could not fetch latest version for LSTM: {reg_err}")
+                    else:
+                        raise RuntimeError("mlflow.keras is unavailable")
+                except Exception as log_err:
+                    logger.warning(f"⚠️ Could not log LSTM as MLflow model: {log_err}")
+                    logger.info("🔄 Falling back to artifact logging for LSTM .h5 file...")
+                    mlflow.log_artifact(model_obj, artifact_path="lstm_model")
+                    logger.info("✅ LSTM .h5 saved as artifact")
+            elif model_name == 'rf':
+                # Try to log Spark RF pipeline as an MLflow model
+                try:
+                    from pyspark.sql import SparkSession
+                    from pyspark.ml import PipelineModel
+                    import mlflow.spark as mls
+                    spark = SparkSession.builder.master("local[1]").appName("rf-mlflow-log").getOrCreate()
+                    rf_model = PipelineModel.load(model_obj)
+                    mls.log_model(rf_model, artifact_path="rf_pipeline_model", registered_model_name="water_quality_rf_pipeline")
+                    try:
+                        latest = client.get_latest_versions(name="water_quality_rf_pipeline")
+                        if latest:
+                            mv = latest[0]
+                            registered_versions['rf'] = (mv.name, mv.version)
+                            try:
+                                client.transition_model_version_stage(
+                                    name=mv.name,
+                                    version=mv.version,
+                                    stage=target_stage_default,
+                                    archive_existing_versions=False
+                                )
+                                logger.info(f"✅ Transitioned RF to {target_stage_default}")
+                            except Exception as st_err:
+                                logger.warning(f"⚠️ Could not transition stage for RF: {st_err}")
+                    except Exception as reg_err:
+                        logger.warning(f"⚠️ Could not fetch latest version for RF: {reg_err}")
+                    try:
+                        spark.stop()
+                    except Exception:
+                        pass
+                    logger.info("✅ RF Spark pipeline logged to MLflow")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not log RF via mlflow.spark: {e}")
+                    logger.info("🔄 Falling back to logging RF pipeline directory as artifact")
+                    mlflow.log_artifact(model_obj, artifact_path="rf_pipeline_model")
+                    logger.info("✅ RF pipeline saved as artifact")
+        
+        # Log best model với tên riêng
+        if best_name and best_name in models:
+            best_model_obj = models[best_name]
+            # Nếu best là một trong các model đã đăng ký, nâng stage lên Production; nếu chưa đăng ký, bỏ qua
+            reg = registered_versions.get(best_name)
+            target_stage_best = os.getenv('MLFLOW_TARGET_STAGE_BEST', 'Production')
+            if reg:
+                reg_name, reg_ver = reg
+                try:
+                    client.transition_model_version_stage(
+                        name=reg_name,
+                        version=reg_ver,
+                        stage=target_stage_best,
+                        archive_existing_versions=True
+                    )
+                    logger.info(f"🏁 Promoted {best_name} → {target_stage_best} (version {reg_ver})")
+                except Exception as st_err:
+                    logger.warning(f"⚠️ Could not promote best model {best_name}: {st_err}")
             else:
-                logger.warning(f"⚠️ Cannot register best model {best_name} - unsupported format")
+                logger.warning(f"⚠️ Best model {best_name} not in registered_versions; skipped promotion")
 
         # Log toàn bộ metrics.json như artifact
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp:
@@ -537,7 +684,9 @@ def save_models_to_mlflow(**context):
         run_id = mlflow.active_run().info.run_id
         logger.info(f"✅ MLflow run completed: {run_id}")
 
-    return f"Best model saved to MLflow: {best_name} (R²: {best_r2:.4f})"
+    if best_name is not None:
+        return f"Best model saved to MLflow: {best_name} (R²: {best_r2:.4f})"
+    return "Models logged to MLflow (no metrics available for comparison)"
 
 def _cleanup_inferior_models(best_model):
     """Xóa các model không tốt nhất để tiết kiệm dung lượng"""
@@ -659,7 +808,8 @@ def load_historical_data_and_train_ensemble() :
         mount_tmp_dir=False,  # Disable automatic tmp directory mounting
         working_dir='/app',
         mounts = [
-            Mount(source=f"{project_root}/models", target="/app/models", type="bind"),
+            # Đồng bộ cùng thư mục models mà Airflow sử dụng, để host có thể thấy artifact
+            Mount(source=os.getenv('AIRFLOW_MODELS_DIR', f"{project_root}/models"), target="/app/models", type="bind"),
             Mount(source=f"{project_root}/spark",  target="/app/spark",  type="bind"),
             # mlruns and mlartifacts will be created in the container's working directory
             # since they're not mounted from host
