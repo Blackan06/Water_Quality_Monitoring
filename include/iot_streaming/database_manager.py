@@ -392,7 +392,7 @@ class DatabaseManager:
                     raw_data.get('temperature', 0),
                     raw_data.get('do', 0),
                     raw_data.get('wqi', 0),
-                    True,
+                    False,
                 )
             else:
                 insert_query = sql.SQL("""
